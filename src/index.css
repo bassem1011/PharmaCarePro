@@ -1,13 +1,35 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Enable dark mode via class */
+:root {
+  --color-bg: #f9fafb;
+  --color-bg-dark: #18181b;
+  --color-text: #1e293b;
+  --color-text-dark: #f1f5f9;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+body {
+  font-family: "Cairo", "Tajawal", "Noto Sans Arabic", sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Focus ring for accessibility */
+:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Horizontal scroll indicator for tables on mobile */
+.overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.dark .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #334155;
 }
