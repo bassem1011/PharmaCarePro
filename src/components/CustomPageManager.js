@@ -1,5 +1,5 @@
 // src/components/CustomPageManager.jsx
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   addCustomPage,
@@ -7,62 +7,211 @@ import {
   deleteCustomPage,
   updateCustomPage,
 } from "../utils/firestoreService";
+import { useToast } from "../App";
+import {
+  Plus,
+  Edit,
+  Trash2,
+  Send,
+  FileText,
+  Calendar,
+  ArrowRight,
+  CheckCircle,
+  RefreshCw,
+  Search,
+  Filter,
+  Download,
+  Upload,
+  X,
+} from "lucide-react";
+import MonthYearModal from "./ui/MonthYearModal";
 
-const CustomPageManager = ({ itemsByMonth, setItemsByMonth, monthKey }) => {
+const CustomPageManager = ({
+  itemsByMonth,
+  setItemsByMonth,
+  monthKey,
+  month,
+  year,
+  setMonth,
+  setYear,
+  handleMonthYearChange,
+}) => {
+  const toast = useToast();
   const [customPages, setCustomPages] = useState([]);
   const [newPageName, setNewPageName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isSending, setIsSending] = useState("");
   const [editingPageId, setEditingPageId] = useState(null);
   const [editingPageName, setEditingPageName] = useState("");
+  const [showMonthYearModal, setShowMonthYearModal] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(
+    month || new Date().getMonth()
+  );
+  const [selectedYear, setSelectedYear] = useState(
+    year || new Date().getFullYear()
+  );
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all"); // all, dispensed, incoming, stock
+  const [showAddItemsModal, setShowAddItemsModal] = useState(false);
+  const [selectedPageForItems, setSelectedPageForItems] = useState(null);
+  const [expandedPages, setExpandedPages] = useState(new Set()); // Track which pages are expanded
+
+  // Memoized calculations to avoid repeated computations
+  const memoizedCalculations = useMemo(() => {
+    if (!customPages || !Array.isArray(customPages)) {
+      return {
+        totalPages: 0,
+        selectedItems: 0,
+        totalItems: 0,
+        activePages: 0,
+      };
+    }
+
+    const totalPages = customPages.length;
+    const totalItems = customPages.reduce(
+      (sum, page) => sum + (page.items?.length || 0),
+      0
+    );
+    const activePages = customPages.filter(
+      (page) => page.items && page.items.length > 0
+    ).length;
+
+    return {
+      totalPages,
+      selectedItems: 0, // This will be calculated dynamically based on selection
+      totalItems,
+      activePages,
+    };
+  }, [customPages]);
 
   useEffect(() => {
     getCustomPages().then(setCustomPages);
   }, []);
 
+  // Get current month's items
+  const currentItems = itemsByMonth[monthKey] || [];
+
+  // Filter items based on search and filter
+  const filteredItems = currentItems.filter((item) => {
+    const matchesSearch = item.name
+      ?.toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const matchesFilter =
+      filterType === "all" ||
+      (filterType === "dispensed" &&
+        Object.keys(item.dailyDispense || {}).length > 0) ||
+      (filterType === "incoming" &&
+        Object.keys(item.dailyIncoming || {}).length > 0) ||
+      (filterType === "stock" &&
+        (item.opening > 0 || Object.keys(item.dailyIncoming || {}).length > 0));
+
+    return matchesSearch && matchesFilter;
+  });
+
   const createCustomPage = async () => {
     if (!newPageName.trim()) return;
-    if (customPages.some((p) => p.name === newPageName.trim())) return;
+    if (customPages.some((p) => p.name === newPageName.trim())) {
+      toast("اسم الصفحة موجود بالفعل!", "error");
+      return;
+    }
     setIsCreating(true);
-    await addCustomPage({ name: newPageName.trim(), items: [] });
+    await addCustomPage({
+      name: newPageName.trim(),
+      items: [],
+      createdAt: new Date().toISOString(),
+      monthKey: monthKey,
+      month: month,
+      year: year,
+    });
     setCustomPages(await getCustomPages());
     setNewPageName("");
     setIsCreating(false);
+    toast("تم إنشاء الصفحة بنجاح!", "success");
   };
 
-  const sendToPage = async (pageName) => {
-    const selectedItems = itemsByMonth[monthKey]?.filter(
-      (item) => item.selected
-    );
-    if (!selectedItems || selectedItems.length === 0) {
-      alert("لم يتم اختيار أي صنف.");
+  // Enhanced function to add items to a custom page
+  const addItemsToPage = async (page, itemsToAdd) => {
+    if (!itemsToAdd || itemsToAdd.length === 0) {
+      toast("لم يتم اختيار أي صنف.", "error");
       return;
     }
 
-    setIsSending(pageName);
-    // Simulate loading for better UX
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setIsSending(page.name);
 
-    setCustomPages((prev) =>
-      prev.map((p) =>
-        p.name === pageName
-          ? {
-              ...p,
-              items: [
-                ...p.items,
-                ...selectedItems.map((item) => ({ ...item, selected: false })),
-              ],
-            }
-          : p
-      )
+    // Get existing items in the page
+    const existingItems = page.items || [];
+    const existingNames = new Set(existingItems.map((item) => item.name));
+
+    // Add new items (avoid duplicates by name)
+    const newItems = [
+      ...existingItems,
+      ...itemsToAdd.filter((item) => !existingNames.has(item.name)),
+    ];
+
+    await updateCustomPage(page.id, {
+      items: newItems,
+      lastUpdated: new Date().toISOString(),
+    });
+
+    setCustomPages(await getCustomPages());
+    setIsSending("");
+    toast(`تم إضافة ${itemsToAdd.length} صنف إلى الصفحة بنجاح!`, "success");
+  };
+
+  // Sync custom page items with main inventory
+  const syncPageWithInventory = async (page) => {
+    const updatedItems = page.items.map((pageItem) => {
+      const mainItem = currentItems.find((item) => item.name === pageItem.name);
+      if (mainItem) {
+        return {
+          ...pageItem,
+          dailyDispense: mainItem.dailyDispense || {},
+          dailyIncoming: mainItem.dailyIncoming || {},
+          opening: mainItem.opening || 0,
+          unitPrice: mainItem.unitPrice || 0,
+        };
+      }
+      return pageItem;
+    });
+
+    await updateCustomPage(page.id, {
+      items: updatedItems,
+      lastSynced: new Date().toISOString(),
+    });
+
+    setCustomPages(await getCustomPages());
+    toast("تم مزامنة الصفحة مع المخزون الرئيسي!", "success");
+  };
+
+  // Update item in both custom page and main inventory
+  const updateItemInBoth = async (page, itemIndex, field, value) => {
+    const pageItem = page.items[itemIndex];
+
+    // Update in custom page
+    const updatedPageItems = page.items.map((item, idx) =>
+      idx === itemIndex ? { ...item, [field]: value } : item
     );
 
-    const updatedMonth = itemsByMonth[monthKey].map((item) => ({
-      ...item,
-      selected: false,
-    }));
-    setItemsByMonth({ ...itemsByMonth, [monthKey]: updatedMonth });
-    setIsSending("");
+    await updateCustomPage(page.id, {
+      items: updatedPageItems,
+      lastUpdated: new Date().toISOString(),
+    });
+
+    // Update in main inventory
+    const mainItemIndex = currentItems.findIndex(
+      (item) => item.name === pageItem.name
+    );
+    if (mainItemIndex !== -1) {
+      const updatedMainItems = [...currentItems];
+      updatedMainItems[mainItemIndex] = {
+        ...updatedMainItems[mainItemIndex],
+        [field]: value,
+      };
+      setItemsByMonth({ ...itemsByMonth, [monthKey]: updatedMainItems });
+    }
+
+    setCustomPages(await getCustomPages());
+    toast("تم تحديث الصنف في الصفحة والمخزون الرئيسي!", "success");
   };
 
   const handleKeyPress = (e) => {
@@ -74,315 +223,829 @@ const CustomPageManager = ({ itemsByMonth, setItemsByMonth, monthKey }) => {
   const removeCustomPage = async (id) => {
     await deleteCustomPage(id);
     setCustomPages(await getCustomPages());
+    toast("تم حذف الصفحة بنجاح!", "success");
   };
 
-  // Start editing a page name
   const startEditPageName = (id, currentName) => {
     setEditingPageId(id);
     setEditingPageName(currentName);
   };
 
-  // Save edited page name
   const saveEditPageName = async (id) => {
     await updateCustomPage(id, { name: editingPageName });
     setCustomPages(await getCustomPages());
     setEditingPageId(null);
     setEditingPageName("");
-  };
-
-  // Update items in a custom page
-  const updatePageItems = async (id, newItems) => {
-    await updateCustomPage(id, { items: newItems });
-    setCustomPages(await getCustomPages());
+    toast("تم تحديث اسم الصفحة!", "success");
   };
 
   // Helper: get selected items for the current month
   const getSelectedItems = () => {
-    return (itemsByMonth[monthKey] || []).filter((item) => item.selected);
+    return customPages.flatMap((page) => page.items || []);
   };
 
-  // Add selected items to a custom page (no duplicates by name)
-  const addSelectedToPage = async (page) => {
-    const selected = getSelectedItems();
-    if (!selected.length) return;
-    // Avoid duplicates by name
-    const existingNames = new Set((page.items || []).map((i) => i.name));
-    const newItems = [
-      ...(page.items || []),
-      ...selected.filter((item) => !existingNames.has(item.name)),
-    ];
-    await updateCustomPage(page.id, { items: newItems });
-    setCustomPages(await getCustomPages());
+  // Toggle page expansion
+  const togglePageExpansion = (pageId) => {
+    setExpandedPages((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(pageId)) {
+        newSet.delete(pageId);
+      } else {
+        newSet.add(pageId);
+      }
+      return newSet;
+    });
   };
 
-  // Handle editing a daily value in a custom page's table
-  const handleCustomPageValueChange = async (page, itemIdx, day, value) => {
-    // Update in custom page
-    const updatedItems = page.items.map((item, idx) =>
-      idx === itemIdx
-        ? {
-            ...item,
-            dailyDispense: { ...item.dailyDispense, [day]: Number(value) },
-          }
-        : item
-    );
-    await updateCustomPage(page.id, { items: updatedItems });
-    setCustomPages(await getCustomPages());
+  // Check if page is expanded
+  const isPageExpanded = (pageId) => expandedPages.has(pageId);
 
-    // Update in main itemsByMonth
-    const mainItems = (itemsByMonth[monthKey] || []).map((item) =>
-      item.name === page.items[itemIdx].name
-        ? {
-            ...item,
-            dailyDispense: { ...item.dailyDispense, [day]: Number(value) },
-          }
-        : item
-    );
-    setItemsByMonth({ ...itemsByMonth, [monthKey]: mainItems });
-  };
-
-  return (
-    <div className="p-8 bg-white dark:bg-gray-800 rounded-3xl shadow-2xl mt-8 border-t-4 border-blue-200 dark:border-blue-700 font-[Cairo]">
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-extrabold mb-4 text-blue-700 dark:text-blue-300 tracking-wide leading-relaxed">
-          📁 إنشاء صفحات مخصصة
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400 text-lg">
-          إنشاء صفحات خاصة لتجميع الأصناف المحددة
-        </p>
-      </div>
-
-      <div className="flex gap-4 mb-8 justify-center">
-        <motion.input
-          type="text"
-          value={newPageName}
-          onChange={(e) => setNewPageName(e.target.value)}
-          onKeyPress={handleKeyPress}
-          whileFocus={{ scale: 1.02 }}
-          className="border-2 border-gray-300 dark:border-gray-600 px-4 py-3 rounded-xl w-80 text-lg focus:outline-none focus:ring-4 focus:ring-blue-400 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-200 transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500"
-          placeholder="اسم الصفحة الجديدة"
-          disabled={isCreating}
-        />
-        <motion.button
-          onClick={createCustomPage}
-          whileHover={{
-            scale: 1.05,
-            boxShadow: "0 8px 32px rgba(59, 130, 246, 0.3)",
-          }}
-          whileTap={{ scale: 0.95 }}
-          disabled={isCreating || !newPageName.trim()}
-          className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-xl hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-400 font-bold flex items-center gap-3 transition-all duration-300 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+  const MonthYearModal = () => (
+    <AnimatePresence>
+      {showMonthYearModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => setShowMonthYearModal(false)}
         >
-          {isCreating ? (
-            <>
-              <motion.div
-                className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              />
-              <span>جاري الإنشاء...</span>
-            </>
-          ) : (
-            <>
-              <span className="text-xl">➕</span>
-              <span>إضافة صفحة</span>
-            </>
-          )}
-        </motion.button>
-      </div>
-
-      <AnimatePresence>
-        {customPages.length > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="space-y-4"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gray-950 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-fuchsia-700/50"
+            dir="rtl"
           >
-            {customPages.map((page) => (
-              <div
-                key={page.id}
-                className="flex flex-col gap-2 bg-gray-50 dark:bg-gray-800 rounded-xl px-6 py-4 shadow-md mt-2"
+            <div className="text-center mb-6">
+              <div className="text-4xl mb-4">📅</div>
+              <h3 className="text-2xl font-bold text-white mb-2">
+                تحديد الشهر والسنة
+              </h3>
+              <p className="text-gray-400">اختر الشهر والسنة لعرض البيانات</p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white font-bold mb-2">الشهر</label>
+                <select
+                  className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:border-fuchsia-500 focus:ring-2 focus:ring-fuchsia-500"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                >
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <option key={i} value={i}>
+                      {new Date(2024, i).toLocaleString("ar-EG", {
+                        month: "long",
+                      })}{" "}
+                      {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-white font-bold mb-2">السنة</label>
+                <select
+                  className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:border-fuchsia-500 focus:ring-2 focus:ring-fuchsia-500"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                >
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <option key={i} value={2020 + i}>
+                      {2020 + i}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-4 justify-end mt-6">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowMonthYearModal(false)}
+                className="px-6 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-all duration-200"
               >
-                <div className="flex items-center gap-4">
-                  {editingPageId === page.id ? (
-                    <>
-                      <input
-                        type="text"
-                        value={editingPageName}
-                        onChange={(e) => setEditingPageName(e.target.value)}
-                        className="border-2 border-blue-400 px-3 py-2 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-gray-100"
-                      />
-                      <button
-                        onClick={() => saveEditPageName(page.id)}
-                        className="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold ml-2 hover:bg-blue-600"
-                      >
-                        حفظ
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingPageId(null);
-                          setEditingPageName("");
-                        }}
-                        className="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-400"
-                      >
-                        إلغاء
-                      </button>
-                      </>
-                    ) : (
-                      <>
-                      <span className="text-lg font-bold text-blue-700 dark:text-blue-200">
-                        {page.name}
-                      </span>
-                      <button
-                        onClick={() => startEditPageName(page.id, page.name)}
-                        className="bg-yellow-400 text-white px-3 py-1 rounded-lg font-bold ml-2 hover:bg-yellow-500"
-                      >
-                        إعادة تسمية
-                      </button>
-                      <button
-                        onClick={() => removeCustomPage(page.id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-red-600"
-                      >
-                        حذف
-                      </button>
-                      </>
-                    )}
-                  <button
-                    onClick={() => addSelectedToPage(page)}
-                    className="bg-green-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-green-600"
-                  >
-                    إضافة الأصناف المحددة
-                  </button>
-                </div>
-                {/* Table for this custom page's items */}
-                {page.items && page.items.length > 0 && (
-                  <div className="overflow-x-auto mt-4">
-                    <table className="border-2 border-gray-300 dark:border-gray-600 text-base text-right font-[Cairo] font-sans w-max rounded-xl overflow-hidden relative">
-                      <thead className="bg-gradient-to-r from-blue-100 to-blue-200 dark:from-blue-900 dark:to-blue-800 text-gray-800 dark:text-gray-200 sticky top-0 z-10 shadow-md">
-                        <tr>
-                          <th className="p-4 border-b border-gray-300 dark:border-gray-600 font-bold text-lg">
-                            🏷️ الصنف
-                          </th>
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map(
-                            (d) => (
-                              <th
-                                key={d}
-                                className="p-4 border-b border-gray-300 dark:border-gray-600 font-bold text-lg"
-                              >{`يوم ${d}`}</th>
+                إلغاء
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  if (handleMonthYearChange) {
+                    handleMonthYearChange(selectedMonth, selectedYear);
+                  } else {
+                    setMonth(selectedMonth);
+                    setYear(selectedYear);
+                  }
+                  setShowMonthYearModal(false);
+                }}
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white font-bold transition-all duration-200"
+              >
+                تأكيد
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  // Add Items Modal
+  const AddItemsModal = () => (
+    <AnimatePresence>
+      {showAddItemsModal && selectedPageForItems && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => setShowAddItemsModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl max-h-[80vh] overflow-hidden"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800">
+                إضافة أصناف إلى: {selectedPageForItems.name}
+              </h3>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowAddItemsModal(false)}
+                className="p-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </motion.button>
+            </div>
+
+            {/* Search and Filter */}
+            <div className="flex gap-4 mb-6">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="البحث في الأصناف..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-500"
+                />
+              </div>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-500"
+              >
+                <option value="all">جميع الأصناف</option>
+                <option value="dispensed">المنصرف فقط</option>
+                <option value="incoming">الوارد فقط</option>
+                <option value="stock">المخزون فقط</option>
+              </select>
+            </div>
+
+            {/* Items List */}
+            <div className="max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredItems.map((item, index) => {
+                  const isInPage = selectedPageForItems.items.some(
+                    (pageItem) => pageItem.name === item.name
+                  );
+                  return (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`p-4 rounded-xl border-2 transition-all duration-200 ${
+                        isInPage
+                          ? "bg-green-50 border-green-300"
+                          : "bg-gray-50 border-gray-200 hover:border-indigo-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-bold text-gray-800">{item.name}</h4>
+                        {isInPage && (
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <div>الافتتاحي: {Math.floor(item.opening || 0)}</div>
+                        <div>
+                          إجمالي الوارد:{" "}
+                          {Math.floor(
+                            Object.values(item.dailyIncoming || {}).reduce(
+                              (sum, val) => sum + (Number(val) || 0),
+                              0
                             )
                           )}
-                          <th className="p-4 border-b border-gray-300 dark:border-gray-600 bg-green-50 dark:bg-green-900/20 font-bold text-lg">
-                            📥 الافتتاحي + الوارد
-                          </th>
-                          <th className="p-4 border-b border-gray-300 dark:border-gray-600 bg-red-50 dark:bg-red-900/20 font-bold text-lg">
-                            📤 المنصرف
-                            </th>
-                          <th className="p-4 border-b border-gray-300 dark:border-gray-600 bg-yellow-50 dark:bg-yellow-900/20 font-bold text-lg">
-                            🟡 المتبقي
-                            </th>
-                          <th className="p-4 border-b border-gray-300 dark:border-gray-600 font-bold text-lg">
-                            🗑️ حذف
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                        {page.items.map((item, idx) => {
-                          // Calculate totals for this item
-                          const days = Array.from(
-                            { length: 31 },
-                            (_, d) => d + 1
-                          );
-                          const totalDispensed = days.reduce(
-                            (acc, d) => acc + (item.dailyDispense?.[d] || 0),
-                            0
-                          );
-                          const totalIncoming = days.reduce(
-                            (acc, d) => acc + (item.dailyIncoming?.[d] || 0),
-                            0
-                          );
-                          const overallStock =
-                            (item.opening || 0) + totalIncoming;
-                          const remaining = overallStock - totalDispensed;
-                          return (
-                            <tr key={item.name}>
-                              <td className="p-4 border-b border-gray-200 dark:border-gray-600">
-                                {item.name}
-                              </td>
-                              {days.map((day) => (
-                                <td
-                                  key={day}
-                                  className="p-2 border-b border-gray-200 dark:border-gray-600"
-                                >
-                                  <input
-                                    type="number"
-                                    value={item.dailyDispense?.[day] || ""}
-                                    onChange={(e) =>
-                                      handleCustomPageValueChange(
-                                        page,
-                                        idx,
-                                        day,
-                                        e.target.value
-                                      )
-                                    }
-                                    className="w-16 text-center px-2 py-1 border-2 border-gray-300 dark:border-gray-600 rounded-lg text-base focus:ring-2 focus:ring-blue-400 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-200 transition-all duration-200 hover:border-blue-400 dark:hover:border-blue-500"
-                                  />
-                                </td>
-                              ))}
-                              <td className="p-4 border-b border-gray-200 dark:border-gray-600 bg-green-50 dark:bg-green-900/20">
-                                {overallStock}
-                              </td>
-                              <td className="p-4 border-b border-gray-200 dark:border-gray-600 bg-red-50 dark:bg-red-900/20">
-                                {totalDispensed}
-                              </td>
-                              <td className="p-4 border-b border-gray-200 dark:border-gray-600 bg-yellow-50 dark:bg-yellow-900/20">
-                                {remaining}
-                              </td>
-                              <td className="p-4 border-b border-gray-200 dark:border-gray-600 text-center">
-                                <button
-                                  onClick={async () => {
-                                    // Remove item from custom page
-                                    const newItems = page.items.filter(
-                                      (_, i) => i !== idx
-                                    );
-                                    await updateCustomPage(page.id, {
-                                      items: newItems,
-                                    });
-                                    setCustomPages(await getCustomPages());
-                                  }}
-                                  className="bg-red-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-red-600"
-                                >
-                                  🗑️
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        </tbody>
-                      </table>
-                    </div>
-                )}
+                        </div>
+                        <div>
+                          إجمالي المنصرف:{" "}
+                          {Math.floor(
+                            Object.values(item.dailyDispense || {}).reduce(
+                              (sum, val) => sum + (Number(val) || 0),
+                              0
+                            )
+                          )}
+                        </div>
+                        <div className="font-semibold text-blue-600">
+                          الرصيد المتبقي:{" "}
+                          {(() => {
+                            const opening = Math.floor(
+                              Number(item.opening || 0)
+                            );
+                            const totalIncoming = Math.floor(
+                              Object.values(item.dailyIncoming || {}).reduce(
+                                (sum, val) => sum + (Number(val) || 0),
+                                0
+                              )
+                            );
+                            const totalDispensed = Math.floor(
+                              Object.values(item.dailyDispense || {}).reduce(
+                                (sum, val) => sum + (Number(val) || 0),
+                                0
+                              )
+                            );
+                            return opening + totalIncoming - totalDispensed;
+                          })()}
+                        </div>
+                        <div>
+                          المنصرف:{" "}
+                          {Object.keys(item.dailyDispense || {}).length} يوم
+                        </div>
+                        <div>
+                          الوارد: {Object.keys(item.dailyIncoming || {}).length}{" "}
+                          يوم
+                        </div>
+                      </div>
+                      {!isInPage && (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() =>
+                            addItemsToPage(selectedPageForItems, [item])
+                          }
+                          className="mt-3 w-full px-3 py-2 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 transition-colors"
+                        >
+                          إضافة للصفحة
+                        </motion.button>
+                      )}
+                    </motion.div>
+                  );
+                })}
               </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </div>
 
+            <div className="flex justify-end gap-4 mt-6">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowAddItemsModal(false)}
+                className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-colors"
+              >
+                إغلاق
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-6 text-white shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/20 rounded-xl">
+              <FileText className="w-8 h-8" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold">إدارة الصفحات المخصصة</h2>
+              <p className="text-indigo-100 mt-1">
+                إنشاء وإدارة صفحات مخصصة للأصناف مع عرض تفصيلي للبيانات وتعديل
+                المنصرف اليومي
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowMonthYearModal(true)}
+              className="px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl font-bold hover:bg-white/30 transition-all duration-300 shadow-lg flex items-center gap-2 border border-white/30"
+            >
+              <Calendar className="w-5 h-5" />
+              <span>تغيير الشهر/السنة</span>
+            </motion.button>
+          </div>
+        </div>
+      </div>
+
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-indigo-100 text-sm">إجمالي الصفحات</p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.totalPages}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <FileText className="w-6 h-6" />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-100 text-sm">الأصناف المتاحة</p>
+              <p className="text-3xl font-bold">{currentItems.length}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <CheckCircle className="w-6 h-6" />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-purple-100 text-sm">
+                إجمالي الأصناف في الصفحات
+              </p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.totalItems}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <ArrowRight className="w-6 h-6" />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-orange-100 text-sm">الصفحات النشطة</p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.activePages}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <Send className="w-6 h-6" />
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Information Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-200"
+      >
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-blue-100 rounded-xl">
+            <FileText className="w-6 h-6 text-blue-600" />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-lg font-bold text-blue-800 mb-2">
+              كيفية استخدام الصفحات المخصصة
+            </h4>
+            <div className="text-blue-700 space-y-1 text-sm">
+              <p>
+                • <strong>إنشاء صفحة:</strong> قم بإنشاء صفحة مخصصة لتجميع
+                الأصناف المفضلة
+              </p>
+              <p>
+                • <strong>إضافة أصناف:</strong> اختر الأصناف من المخزون الرئيسي
+                وأضفها للصفحة
+              </p>
+              <p>
+                • <strong>تعديل المنصرف:</strong> يمكنك تعديل قيم المنصرف اليومي
+                لجميع أيام الشهر (أرقام صحيحة فقط)
+              </p>
+              <p>
+                • <strong>حذف الأصناف:</strong> يمكنك حذف الأصناف من الصفحة
+                المخصصة
+              </p>
+              <p>
+                • <strong>المزامنة:</strong> استخدم زر "مزامنة" لتحديث البيانات
+                من المخزون الرئيسي
+              </p>
+              <p>
+                • <strong>البيانات المعروضة:</strong> الافتتاحي، إجمالي الوارد،
+                إجمالي المنصرف، الرصيد المتبقي
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Create New Page Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="bg-white rounded-2xl shadow-xl p-6 border border-gray-200"
+      >
+        <div className="flex items-center gap-4 mb-6">
+          <div className="p-3 bg-indigo-100 rounded-xl">
+            <Plus className="w-6 h-6 text-indigo-600" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-800">إنشاء صفحة جديدة</h3>
+        </div>
+        <div className="flex gap-4">
+          <input
+            type="text"
+            value={newPageName}
+            onChange={(e) => setNewPageName(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="اسم الصفحة الجديدة"
+            className="flex-1 border-2 border-gray-300 px-4 py-3 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-500 transition-all duration-200"
+          />
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={createCustomPage}
+            disabled={isCreating || !newPageName.trim()}
+            className="px-8 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl font-bold hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isCreating ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Plus className="w-5 h-5" />
+            )}
+            <span>{isCreating ? "جاري الإنشاء..." : "إنشاء صفحة"}</span>
+          </motion.button>
+        </div>
+      </motion.div>
+
+      {/* Custom Pages List */}
+      <div className="space-y-4">
+        <h3 className="text-2xl font-bold text-gray-800 mb-6">
+          الصفحات المخصصة
+        </h3>
+        <AnimatePresence>
+          {customPages.map((page, index) => (
+            <motion.div
+              key={page.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ delay: index * 0.1 }}
+              className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden"
+            >
+              {/* Page Header */}
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-indigo-100 rounded-lg">
+                      <FileText className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    {editingPageId === page.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingPageName}
+                          onChange={(e) => setEditingPageName(e.target.value)}
+                          className="border-2 border-indigo-300 px-3 py-1 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => saveEditPageName(page.id)}
+                          className="p-1 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </motion.button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xl font-bold text-gray-800">
+                          {page.name}
+                        </h4>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => startEditPageName(page.id, page.name)}
+                          className="p-1 text-gray-500 hover:text-indigo-600 transition-colors"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </motion.button>
+                      </div>
+                    )}
+                    <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-bold">
+                      {page.items?.length || 0} صنف
+                    </span>
+                    {page.lastSynced && (
+                      <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                        محدث
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Toggle Items Button */}
+                    {page.items && page.items.length > 0 && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => togglePageExpansion(page.id)}
+                        className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-bold hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center gap-2"
+                      >
+                        {isPageExpanded(page.id) ? (
+                          <>
+                            <X className="w-4 h-4" />
+                            <span>إخفاء الأصناف</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowRight className="w-4 h-4" />
+                            <span>عرض الأصناف ({page.items.length})</span>
+                          </>
+                        )}
+                      </motion.button>
+                    )}
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        setSelectedPageForItems(page);
+                        setShowAddItemsModal(true);
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-bold hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>إضافة أصناف</span>
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => syncPageWithInventory(page)}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-bold hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>مزامنة</span>
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => removeCustomPage(page.id)}
+                      className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Page Items - Collapsible */}
+              <AnimatePresence>
+                {page.items &&
+                  page.items.length > 0 &&
+                  isPageExpanded(page.id) && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {page.items.map((item, itemIdx) => (
+                            <motion.div
+                              key={itemIdx}
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ delay: itemIdx * 0.05 }}
+                              className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200"
+                            >
+                              <div className="flex items-center justify-between mb-3">
+                                <h5 className="font-bold text-gray-800">
+                                  {item.name}
+                                </h5>
+                                <span className="text-sm text-gray-500">
+                                  #{itemIdx + 1}
+                                </span>
+                              </div>
+
+                              {/* Item Details */}
+                              <div className="space-y-2 mb-3">
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-gray-600">
+                                    الافتتاحي:
+                                  </span>
+                                  <span className="font-semibold text-gray-800">
+                                    {Math.floor(item.opening || 0)}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-gray-600">
+                                    إجمالي الوارد:
+                                  </span>
+                                  <span className="font-semibold text-gray-800">
+                                    {Math.floor(
+                                      Object.values(
+                                        item.dailyIncoming || {}
+                                      ).reduce(
+                                        (sum, val) => sum + (Number(val) || 0),
+                                        0
+                                      )
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-gray-600">
+                                    إجمالي المنصرف:
+                                  </span>
+                                  <span className="font-semibold text-gray-800">
+                                    {Math.floor(
+                                      Object.values(
+                                        item.dailyDispense || {}
+                                      ).reduce(
+                                        (sum, val) => sum + (Number(val) || 0),
+                                        0
+                                      )
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-sm border-t pt-2">
+                                  <span className="text-gray-600 font-bold">
+                                    الرصيد المتبقي:
+                                  </span>
+                                  <span className="font-bold text-blue-600">
+                                    {(() => {
+                                      const opening = Math.floor(
+                                        Number(item.opening || 0)
+                                      );
+                                      const totalIncoming = Math.floor(
+                                        Object.values(
+                                          item.dailyIncoming || {}
+                                        ).reduce(
+                                          (sum, val) =>
+                                            sum + (Number(val) || 0),
+                                          0
+                                        )
+                                      );
+                                      const totalDispensed = Math.floor(
+                                        Object.values(
+                                          item.dailyDispense || {}
+                                        ).reduce(
+                                          (sum, val) =>
+                                            sum + (Number(val) || 0),
+                                          0
+                                        )
+                                      );
+                                      return (
+                                        opening + totalIncoming - totalDispensed
+                                      );
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Daily Dispense */}
+                              <div className="space-y-2">
+                                <h6 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
+                                  <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                  المنصرف اليومي (قابل للتعديل):
+                                </h6>
+                                <div className="grid grid-cols-5 gap-2">
+                                  {Array.from({ length: 31 }, (_, day) => {
+                                    const dayNumber = day + 1;
+                                    const dispenseValue =
+                                      item.dailyDispense?.[dayNumber] || 0;
+                                    return (
+                                      <div
+                                        key={dayNumber}
+                                        className="flex flex-col items-center"
+                                      >
+                                        <span className="text-xs text-gray-500 mb-1">
+                                          يوم {dayNumber}
+                                        </span>
+                                        <input
+                                          type="number"
+                                          value={dispenseValue}
+                                          onChange={(e) => {
+                                            const newValue =
+                                              e.target.value === ""
+                                                ? 0
+                                                : Math.floor(
+                                                    Number(e.target.value)
+                                                  );
+                                            updateItemInBoth(
+                                              page,
+                                              itemIdx,
+                                              "dailyDispense",
+                                              {
+                                                ...item.dailyDispense,
+                                                [dayNumber]: newValue,
+                                              }
+                                            );
+                                          }}
+                                          className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-blue-50"
+                                          placeholder="0"
+                                          min="0"
+                                          step="1"
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Delete Item Button */}
+                              <div className="mt-4 pt-3 border-t border-gray-200">
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => {
+                                    const updatedItems = page.items.filter(
+                                      (_, idx) => idx !== itemIdx
+                                    );
+                                    updateCustomPage(page.id, {
+                                      items: updatedItems,
+                                      lastUpdated: new Date().toISOString(),
+                                    });
+                                    setCustomPages((prev) =>
+                                      prev.map((p) =>
+                                        p.id === page.id
+                                          ? { ...p, items: updatedItems }
+                                          : p
+                                      )
+                                    );
+                                    toast("تم حذف الصنف من الصفحة!", "success");
+                                  }}
+                                  className="w-full px-3 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  حذف الصنف من الصفحة
+                                </motion.button>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+              </AnimatePresence>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Empty State */}
       {customPages.length === 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center py-12"
+          className="text-center py-12 bg-gray-950 rounded-2xl border border-gray-700"
         >
           <div className="text-6xl mb-4">📁</div>
-          <h3 className="text-xl font-bold text-gray-600 dark:text-gray-400 mb-2">
+          <h3 className="text-xl font-bold text-white mb-2">
             لا توجد صفحات مخصصة
           </h3>
-          <p className="text-gray-500 dark:text-gray-500">
-            ابدأ بإنشاء صفحة مخصصة جديدة
+          <p className="text-gray-400">
+            قم بإنشاء صفحة مخصصة لتجميع الأصناف المفضلة مع عرض تفصيلي للبيانات
           </p>
         </motion.div>
       )}
+
+      <MonthYearModal />
+      <AddItemsModal />
     </div>
   );
 };

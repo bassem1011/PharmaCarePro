@@ -2,17 +2,16 @@ import React, { useState, useEffect } from "react";
 import DailyDispenseTable from "./DailyDispenseTable";
 import DailyIncomingTable from "./DailyIncomingTable";
 import StockStatusTable from "./StockStatusTable";
-import DataTransferButton from "./DataTransferButton";
 import ConsumptionReport from "./ConsumptionReport";
-import ConsumptionChart from "./ConsumptionChart";
 import CustomPageManager from "./CustomPageManager";
 import PharmacyShortages from "./PharmacyShortages";
-import Sidebar from "./Sidebar";
 import { motion } from "framer-motion";
 import {
-  saveMonthlyStock,
-  loadAllMonthlyStock,
+  subscribeToMonthlyStock,
+  saveWithRetry,
 } from "../utils/firestoreService";
+import Spinner from "./ui/Spinner";
+import Skeleton from "./ui/Skeleton";
 
 const getMonthKey = (year, month) =>
   `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -23,9 +22,7 @@ const TABS = [
   { key: "incoming", label: "الوارد اليومي", color: "green" },
   { key: "stock", label: "المخزون الحالي", color: "yellow" },
   { key: "shortages", label: "نواقص الصيدليه", color: "red" },
-  { key: "transfer", label: "ترحيل البيانات", color: "orange" },
   { key: "report", label: "تقرير الاستهلاك", color: "purple" },
-  { key: "chart", label: "رسم بياني للاستهلاك", color: "indigo" },
   { key: "custom", label: "صفحات مخصصة", color: "pink" },
 ];
 
@@ -34,9 +31,7 @@ const CARD_GRADIENTS = {
   incoming: "bg-gradient-to-br from-green-500 via-green-400 to-green-600",
   stock: "bg-gradient-to-br from-yellow-400 via-yellow-300 to-yellow-500",
   shortages: "bg-gradient-to-br from-red-500 via-red-400 to-red-600",
-  transfer: "bg-gradient-to-br from-orange-500 via-orange-400 to-orange-600",
   report: "bg-gradient-to-br from-purple-600 via-purple-500 to-purple-700",
-  chart: "bg-gradient-to-br from-indigo-600 via-indigo-500 to-indigo-700",
   custom: "bg-gradient-to-br from-pink-500 via-pink-400 to-pink-600",
 };
 
@@ -46,9 +41,7 @@ const getTabDescription = (tabKey) => {
     incoming: "تتبع الوارد اليومي",
     stock: "عرض المخزون الحالي",
     shortages: "مراقبة النواقص والاحتياجات",
-    transfer: "ترحيل البيانات بين الشهور",
     report: "تقرير الاستهلاك الشهري",
-    chart: "رسم بياني للاستهلاك",
     custom: "إنشاء صفحات مخصصة",
   };
   return descriptions[tabKey] || "";
@@ -155,102 +148,209 @@ const MonthYearModal = ({ open, onClose, month, setMonth, year, setYear }) => {
   );
 };
 
-const InventoryTabs = () => {
+// Shared inventory data hook
+export function useInventoryData() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileDrawer, setMobileDrawer] = useState(false);
   const [itemsByMonth, setItemsByMonth] = useState({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem("darkMode");
-    return saved ? saved === "true" : false;
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [monthlyConsumption, setMonthlyConsumption] = useState({});
 
-  // Load all months' data on mount
   useEffect(() => {
     setLoading(true);
-    loadAllMonthlyStock()
-      .then((byMonth) => {
-        setItemsByMonth(byMonth);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError("فشل تحميل البيانات من الخادم");
-        setLoading(false);
-        console.error(err);
-      });
+    const unsubscribe = subscribeToMonthlyStock((byMonth) => {
+      setItemsByMonth(byMonth);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save to Firestore when itemsByMonth changes
   useEffect(() => {
     if (Object.keys(itemsByMonth).length === 0) return;
-    const handler = setTimeout(() => {
-      Object.entries(itemsByMonth).forEach(([monthKey, items]) => {
-        saveMonthlyStock(monthKey, items).catch((err) => {
-          setError("فشل حفظ البيانات على الخادم");
-          console.error(err);
-        });
-      });
-    }, 1000);
+
+    // Save immediately when items are added/modified
+    const saveData = async () => {
+      try {
+        const savePromises = Object.entries(itemsByMonth).map(
+          ([monthKey, items]) => {
+            if (items && items.length > 0) {
+              // Don't filter out items - let them persist even if empty
+              // The validation will handle this in saveWithRetry
+              return saveWithRetry(monthKey, items);
+            }
+            return Promise.resolve();
+          }
+        );
+
+        await Promise.all(savePromises);
+        // Data saved successfully to Firebase
+      } catch (err) {
+        setError("فشل حفظ البيانات على الخادم");
+        console.error("Save error:", err);
+      }
+    };
+
+    // Save immediately for new items, debounce for updates
+    const handler = setTimeout(saveData, 500);
     return () => clearTimeout(handler);
   }, [itemsByMonth]);
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [darkMode]);
 
   const currentMonthKey = getMonthKey(year, month);
   const items = itemsByMonth[currentMonthKey] || [];
 
   // Calculate monthly consumption for shortages tracking
   const calculateMonthlyConsumption = () => {
+    const getTotalDispensedFromDaily = (item) => {
+      if (!item || !item.dailyDispense) return 0;
+      const total = Object.values(item.dailyDispense).reduce(
+        (sum, val) => sum + (Number(val) || 0),
+        0
+      );
+      return Math.floor(Number(total));
+    };
+
     const consumption = {};
-    const allMonthKeys = Object.keys(itemsByMonth);
+    const monthKeys = Object.keys(itemsByMonth).sort();
 
-    allMonthKeys.forEach((monthKey) => {
-      const monthItems = itemsByMonth[monthKey] || [];
-      monthItems.forEach((item) => {
+    monthKeys.forEach((monthKey) => {
+      const items = itemsByMonth[monthKey] || [];
+
+      items.forEach((item) => {
+        if (!item.name) return;
+
         if (!consumption[item.name]) {
-          consumption[item.name] = [];
+          consumption[item.name] = {
+            name: item.name,
+            months: {},
+            total: 0,
+            average: 0,
+          };
         }
 
-        const totalDispensed = Object.values(item.dailyDispense || {}).reduce(
-          (sum, value) => sum + (value || 0),
-          0
-        );
-
-        if (totalDispensed > 0) {
-          consumption[item.name].push(totalDispensed);
-        }
+        const totalDispensed = getTotalDispensedFromDaily(item);
+        consumption[item.name].months[monthKey] = totalDispensed;
+        consumption[item.name].total += totalDispensed;
       });
     });
 
-    // Calculate average monthly consumption for each item
-    const averages = {};
-    Object.entries(consumption).forEach(([itemName, values]) => {
-      if (values.length > 0) {
-        averages[itemName] = Math.round(
-          values.reduce((sum, val) => sum + val, 0) / values.length
-        );
+    // Calculate averages
+    Object.values(consumption).forEach((item) => {
+      const monthCount = Object.keys(item.months).length;
+      if (monthCount > 0) {
+        const total = item.total;
+        const average = total / monthCount;
+
+        // Enhanced average calculation
+        if (average > 0) {
+          item.average = Math.floor(average);
+        } else if (total > 0) {
+          item.average = Math.floor(total);
+        } else {
+          item.average = 10; // Default fallback
+        }
+      } else {
+        item.average = 10; // Default fallback
       }
     });
 
-    return averages;
+    setMonthlyConsumption(consumption);
   };
 
-  const monthlyConsumption = calculateMonthlyConsumption();
+  // Use useEffect to calculate monthly consumption when itemsByMonth changes
+  useEffect(() => {
+    calculateMonthlyConsumption();
+  }, [itemsByMonth]);
+
+  // Helper function to calculate remaining stock for an item
+  const calculateRemainingStock = (item) => {
+    if (!item) return 0;
+
+    const opening = Math.floor(Number(item.opening || 0));
+    const totalIncoming = Math.floor(
+      Object.values(item.dailyIncoming || {}).reduce(
+        (acc, val) => acc + Number(val || 0),
+        0
+      )
+    );
+    const totalDispensed = Math.floor(
+      Object.values(item.dailyDispense || {}).reduce(
+        (acc, val) => acc + Number(val || 0),
+        0
+      )
+    );
+
+    return Math.floor(opening + totalIncoming - totalDispensed);
+  };
+
+  // Function to carry over remaining stock to next month
+  const carryOverStockToNextMonth = (currentMonthKey, nextMonthKey) => {
+    const currentItems = itemsByMonth[currentMonthKey] || [];
+    const nextMonthItems = itemsByMonth[nextMonthKey] || [];
+
+    // Create a map of existing items in next month by name
+    const nextMonthItemsMap = {};
+    nextMonthItems.forEach((item, index) => {
+      if (item.name) {
+        nextMonthItemsMap[item.name] = { item, index };
+      }
+    });
+
+    // Calculate remaining stock for each current month item
+    const updatedNextMonthItems = [...nextMonthItems];
+
+    currentItems.forEach((currentItem) => {
+      if (!currentItem.name) return;
+
+      const remainingStock = calculateRemainingStock(currentItem);
+
+      if (nextMonthItemsMap[currentItem.name]) {
+        // Item exists in next month, update its opening stock
+        const { index } = nextMonthItemsMap[currentItem.name];
+        updatedNextMonthItems[index] = {
+          ...updatedNextMonthItems[index],
+          opening: remainingStock,
+        };
+      } else {
+        // Item doesn't exist in next month, create it with remaining stock as opening
+        const newItem = {
+          name: currentItem.name,
+          opening: remainingStock,
+          unitPrice: currentItem.unitPrice || 0,
+          dailyDispense: {},
+          dailyIncoming: {},
+          incomingSource: {},
+          selected: false,
+        };
+        updatedNextMonthItems.push(newItem);
+      }
+    });
+
+    // Update the next month's items
+    setItemsByMonth((prev) => ({
+      ...prev,
+      [nextMonthKey]: updatedNextMonthItems,
+    }));
+  };
+
+  // Enhanced month/year change with automatic carryover
+  const handleMonthYearChange = (newMonth, newYear) => {
+    const newMonthKey = getMonthKey(newYear, newMonth);
+    const currentMonthKey = getMonthKey(year, month);
+
+    // Only carry over if moving to a future month
+    if (newMonthKey > currentMonthKey) {
+      carryOverStockToNextMonth(currentMonthKey, newMonthKey);
+    }
+
+    setMonth(newMonth);
+    setYear(newYear);
+  };
 
   // Ensure month key exists
-  React.useEffect(() => {
+  useEffect(() => {
     if (!itemsByMonth[currentMonthKey]) {
       setItemsByMonth((prev) => ({ ...prev, [currentMonthKey]: [] }));
     }
@@ -274,157 +374,316 @@ const InventoryTabs = () => {
   };
 
   const addItem = () => {
-    setItemsByMonth((prev) => ({
-      ...prev,
-      [currentMonthKey]: [
-        ...(prev[currentMonthKey] || []),
-        {
-          name: "",
-          opening: 0,
-          unitPrice: 0,
-          dailyDispense: {},
-          dailyIncoming: {},
-          incomingSource: {},
-          selected: false,
-        },
-      ],
-    }));
+    const newItem = {
+      name: "",
+      opening: 0,
+      unitPrice: 0,
+      dailyDispense: {},
+      dailyIncoming: {},
+      incomingSource: {},
+      selected: false,
+    };
+
+    setItemsByMonth((prev) => {
+      const updated = {
+        ...prev,
+        [currentMonthKey]: [...(prev[currentMonthKey] || []), newItem],
+      };
+
+      // Save immediately when adding new item
+      setTimeout(() => {
+        saveWithRetry(currentMonthKey, updated[currentMonthKey]).catch(
+          (err) => {
+            setError("فشل حفظ الصنف الجديد");
+            console.error("Add item save error:", err);
+          }
+        );
+      }, 100);
+
+      return updated;
+    });
   };
+
+  return {
+    month,
+    setMonth,
+    year,
+    setYear,
+    itemsByMonth,
+    setItemsByMonth,
+    currentMonthKey,
+    items,
+    updateItem,
+    deleteItem,
+    addItem,
+    handleMonthYearChange,
+    loading,
+    error,
+    modalOpen,
+    setModalOpen,
+    monthlyConsumption,
+  };
+}
+
+export default function InventoryTabs() {
+  const { month, setMonth, year, setYear, modalOpen, setModalOpen, items } =
+    useInventoryData();
+  // Mini data summaries
+  const dispensedCount = items.filter(
+    (i) => Object.keys(i.dailyDispense || {}).length > 0
+  ).length;
+  const incomingCount = items.filter(
+    (i) => Object.keys(i.dailyIncoming || {}).length > 0
+  ).length;
+  const stockCount = items.length;
+  const shortagesCount = items.filter(
+    (i) =>
+      i.opening +
+        Object.values(i.dailyIncoming || {}).reduce((a, b) => a + (b || 0), 0) -
+        Object.values(i.dailyDispense || {}).reduce(
+          (a, b) => a + (b || 0),
+          0
+        ) <=
+      0
+  ).length;
+  return (
+    <div className="bg-gray-900 min-h-screen p-6 rounded-2xl shadow-2xl">
+      <div className="flex justify-end mb-6">
+        <button
+          className="px-4 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary-700 transition-all duration-200"
+          onClick={() => setModalOpen(true)}
+        >
+          تغيير الشهر/السنة
+        </button>
+        <MonthYearModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          month={month}
+          setMonth={setMonth}
+          year={year}
+          setYear={setYear}
+        />
+      </div>
+      {/* Main dashboard cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-8">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl shadow-lg p-6 text-white flex flex-col items-center">
+          <div className="text-2xl font-bold mb-2">المنصرف اليومى</div>
+          <div className="text-lg">عدد الأصناف: {dispensedCount}</div>
+        </div>
+        <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl shadow-lg p-6 text-white flex flex-col items-center">
+          <div className="text-2xl font-bold mb-2">الوارد اليومى</div>
+          <div className="text-lg">عدد الأصناف: {incomingCount}</div>
+        </div>
+        <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-2xl shadow-lg p-6 text-gray-900 flex flex-col items-center">
+          <div className="text-2xl font-bold mb-2">المخزون الحالي</div>
+          <div className="text-lg">عدد الأصناف: {stockCount}</div>
+        </div>
+        <div className="bg-gradient-to-br from-red-500 to-red-700 rounded-2xl shadow-lg p-6 text-white flex flex-col items-center">
+          <div className="text-2xl font-bold mb-2">نواقص الصيدلية</div>
+          <div className="text-lg">عدد النواقص: {shortagesCount}</div>
+        </div>
+        <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-2xl shadow-lg p-6 text-white flex flex-col items-center">
+          <div className="text-2xl font-bold mb-2">تقرير الاستهلاك</div>
+          <div className="text-lg">عدد الأصناف: {stockCount}</div>
+        </div>
+      </div>
+      <DailyDispenseSection />
+      <DailyIncomingSection />
+      <StockStatusSection />
+      <PharmacyShortagesSection />
+      <ConsumptionReportSection />
+      <CustomPagesSection />
+    </div>
+  );
+}
+
+export function DailyDispenseSection(props) {
+  const {
+    month,
+    year,
+    items,
+    updateItem,
+    addItem,
+    deleteItem,
+    loading,
+    error,
+    modalOpen,
+    setModalOpen,
+    handleMonthYearChange,
+  } = useInventoryData();
+  if (loading)
+    return (
+      <div className="p-8 flex flex-col items-center justify-center text-lg text-white">
+        <Spinner size={56} className="mb-4" />
+        <Skeleton width={200} height={24} className="mb-2" />
+        <Skeleton width={300} height={18} />
+      </div>
+    );
+  if (error)
+    return (
+      <div className="p-8 text-center text-lg text-red-400 font-bold">
+        {error}
+      </div>
+    );
+  return (
+    <div className="bg-gray-900 min-h-screen p-6 rounded-2xl shadow-2xl">
+      <DailyDispenseTable
+        items={items}
+        updateItem={updateItem}
+        addItem={addItem}
+        deleteItem={deleteItem}
+        month={month}
+        year={year}
+        handleMonthYearChange={handleMonthYearChange}
+      />
+    </div>
+  );
+}
+
+export function DailyIncomingSection(props) {
+  const {
+    month,
+    year,
+    items,
+    updateItem,
+    loading,
+    error,
+    handleMonthYearChange,
+  } = useInventoryData();
+  if (loading)
+    return (
+      <div className="p-8 flex flex-col items-center justify-center text-lg text-white">
+        <Spinner size={56} className="mb-4" />
+        <Skeleton width={200} height={24} className="mb-2" />
+        <Skeleton width={300} height={18} />
+      </div>
+    );
+  if (error)
+    return (
+      <div className="p-8 text-center text-lg text-red-400 font-bold">
+        {error}
+      </div>
+    );
+  return (
+    <div className="bg-gray-900 min-h-screen p-6 rounded-2xl shadow-2xl">
+      <DailyIncomingTable
+        items={items}
+        updateItem={updateItem}
+        month={month}
+        year={year}
+        handleMonthYearChange={handleMonthYearChange}
+      />
+    </div>
+  );
+}
+
+export function StockStatusSection(props) {
+  const {
+    items,
+    updateItem,
+    month,
+    year,
+    handleMonthYearChange,
+    loading,
+    error,
+  } = useInventoryData();
 
   if (loading)
     return (
-      <div className="p-8 text-center text-lg">جاري تحميل البيانات...</div>
+      <div className="p-8 flex flex-col items-center justify-center text-lg text-white">
+        <Spinner size={56} className="mb-4" />
+        <Skeleton width={200} height={24} className="mb-2" />
+        <Skeleton width={300} height={18} />
+      </div>
     );
   if (error)
-    return <div className="p-8 text-center text-lg text-red-600">{error}</div>;
-
-  return (
-    <div dir="rtl" className="flex flex-row min-h-screen bg-gray-50 font-sans">
-      <Sidebar
-        tabs={TABS}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        collapsed={collapsed}
-        setCollapsed={setCollapsed}
-        mobileDrawer={mobileDrawer}
-        setMobileDrawer={setMobileDrawer}
-      />
-      <div className="flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300">
-        <main className="flex-1 flex flex-col min-h-screen min-w-0 p-4 bg-gray-50">
-          {activeTab === "dispense" ||
-          activeTab === "incoming" ||
-          activeTab === "stock" ? (
-            <div className="w-full pt-8 pr-4 flex flex-col gap-2">
-              <div className="flex flex-row items-center justify-between mb-2">
-                <h2 className="text-lg font-semibold">
-                  {activeTab === "dispense"
-                    ? "جدول المنصرف اليومي"
-                    : activeTab === "incoming"
-                    ? "جدول الوارد اليومي"
-                    : "المخزون الحالي"}
-                </h2>
-                <motion.button
-                  whileHover={{
-                    scale: 1.05,
-                    boxShadow: "0 8px 32px rgba(59, 130, 246, 0.3)",
-                  }}
-                  whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all duration-300 shadow-lg font-bold"
-                  onClick={() => setModalOpen(true)}
-                >
-                  <span className="text-xl">📅</span>
-                  <span>تغيير الشهر/السنة</span>
-                  <motion.div
-                    className="w-2 h-2 bg-white rounded-full"
-                    animate={{
-                      scale: [1, 1.2, 1],
-                      opacity: [0.5, 1, 0.5],
-                    }}
-                    transition={{
-                      duration: 1.5,
-                      repeat: Infinity,
-                      ease: "easeInOut",
-                    }}
-                  />
-                </motion.button>
-              </div>
-              <MonthYearModal
-                open={modalOpen}
-                onClose={() => setModalOpen(false)}
-                month={month}
-                setMonth={setMonth}
-                year={year}
-                setYear={setYear}
-              />
-              {activeTab === "dispense" || activeTab === "incoming" ? (
-                <div
-                  className="overflow-x-auto w-full pb-10 pt-0"
-                  dir="rtl"
-                  style={{ WebkitOverflowScrolling: "touch" }}
-                >
-                  <div style={{ minWidth: "4000px", width: "max-content" }}>
-                    {activeTab === "dispense" ? (
-                      <DailyDispenseTable
-                        items={items}
-                        updateItem={updateItem}
-                        addItem={addItem}
-                        deleteItem={deleteItem}
-                        month={month}
-                        year={year}
-                      />
-                    ) : (
-                      <DailyIncomingTable
-                        items={items}
-                        updateItem={updateItem}
-                        month={month}
-                        year={year}
-                      />
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full pb-10 pt-0">
-                  <StockStatusTable
-                    items={items}
-                    updateItem={updateItem}
-                    month={month}
-                    year={year}
-                  />
-                </div>
-              )}
-            </div>
-          ) : activeTab === "dashboard" ? (
-            <DashboardGrid tabs={TABS} setActiveTab={setActiveTab} />
-          ) : (
-            <div className="w-full pb-10 pt-4">
-              {activeTab === "shortages" ? (
-                <PharmacyShortages
-                  items={items}
-                  monthlyConsumption={monthlyConsumption}
-                />
-              ) : activeTab === "transfer" ? (
-                <DataTransferButton
-                  itemsByMonth={itemsByMonth}
-                  setItemsByMonth={setItemsByMonth}
-                  currentMonthKey={currentMonthKey}
-                />
-              ) : activeTab === "report" ? (
-                <ConsumptionReport allMonthsItems={itemsByMonth} />
-              ) : activeTab === "chart" ? (
-                <ConsumptionChart allMonthsItems={itemsByMonth} />
-              ) : activeTab === "custom" ? (
-                <CustomPageManager
-                  itemsByMonth={itemsByMonth}
-                  setItemsByMonth={setItemsByMonth}
-                  monthKey={currentMonthKey}
-                />
-              ) : null}
-            </div>
-          )}
-        </main>
+    return (
+      <div className="p-8 text-center text-lg text-red-400 font-bold">
+        {error}
       </div>
+    );
+  return (
+    <div className="bg-gray-900 min-h-screen p-6 rounded-2xl shadow-2xl">
+      <StockStatusTable
+        items={items}
+        updateItem={updateItem}
+        month={month}
+        year={year}
+        handleMonthYearChange={handleMonthYearChange}
+      />
     </div>
   );
-};
+}
 
-export default InventoryTabs;
+export function PharmacyShortagesSection(props) {
+  const { items, monthlyConsumption, loading, error } = useInventoryData();
+
+  if (loading)
+    return (
+      <div className="p-8 flex flex-col items-center justify-center text-lg text-white">
+        <Spinner size={56} className="mb-4" />
+        <Skeleton width={200} height={24} className="mb-2" />
+        <Skeleton width={300} height={18} />
+      </div>
+    );
+  if (error)
+    return (
+      <div className="p-8 text-center text-lg text-red-400 font-bold">
+        {error}
+      </div>
+    );
+  return (
+    <div className="bg-gray-900 min-h-screen p-6 rounded-2xl shadow-2xl">
+      <h2 className="text-2xl font-black text-fuchsia-400 mb-6">
+        نواقص الصيدلية
+      </h2>
+      <PharmacyShortages
+        items={items}
+        monthlyConsumption={monthlyConsumption}
+      />
+    </div>
+  );
+}
+
+export function ConsumptionReportSection(props) {
+  const { items, monthlyConsumption, month, year, handleMonthYearChange } =
+    useInventoryData();
+  return (
+    <div className="space-y-6">
+      <ConsumptionReport
+        items={items}
+        monthlyConsumption={monthlyConsumption}
+        month={month}
+        year={year}
+        handleMonthYearChange={handleMonthYearChange}
+      />
+    </div>
+  );
+}
+
+export function CustomPagesSection(props) {
+  const {
+    itemsByMonth,
+    setItemsByMonth,
+    month,
+    year,
+    setMonth,
+    setYear,
+    handleMonthYearChange,
+  } = useInventoryData();
+  const monthKey = getMonthKey(year, month);
+  return (
+    <div className="space-y-6">
+      <CustomPageManager
+        itemsByMonth={itemsByMonth}
+        setItemsByMonth={setItemsByMonth}
+        monthKey={monthKey}
+        month={month}
+        year={year}
+        setMonth={setMonth}
+        setYear={setYear}
+        handleMonthYearChange={handleMonthYearChange}
+      />
+    </div>
+  );
+}

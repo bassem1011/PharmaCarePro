@@ -5,7 +5,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { db } from "./firebase";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 
 const auth = getAuth();
 
@@ -46,4 +46,13 @@ export async function signIn(email, password) {
 // Sign out
 export async function logout() {
   await signOut(auth);
+}
+
+export async function getUserByUid(uid) {
+  const userDoc = await getDoc(doc(db, "users", uid));
+  if (userDoc.exists()) {
+    return userDoc.data();
+  } else {
+    throw new Error("User not found");
+  }
 }

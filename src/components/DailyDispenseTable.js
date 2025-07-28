@@ -1,60 +1,74 @@
 // src/components/DailyDispenseTable.jsx
-import React, { useState } from "react";
-import { motion } from "framer-motion";
+import React, { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "../App";
+import { Calendar } from "lucide-react";
+import MonthYearModal from "./ui/MonthYearModal";
+
 const ConfirmDeleteModal = ({ onConfirm, onCancel }) => (
-  <div
-    className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4"
-    onClick={onCancel}
-  >
-    <div
-      className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-2xl max-w-md w-full border-t-4 border-red-400 dark:border-red-600 font-[Cairo]"
-      onClick={(e) => e.stopPropagation()}
+  <AnimatePresence>
+    <motion.div
+      className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4"
+      onClick={onCancel}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
     >
-      <div className="text-center mb-6">
-        <motion.div
-          className="text-4xl mb-4"
-          animate={{
-            scale: [1, 1.1, 1],
-            rotate: [0, 5, -5, 0],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        >
-          ⚠️
-        </motion.div>
-        <h3 className="text-2xl font-extrabold text-red-700 dark:text-red-400 mb-2 tracking-wide leading-relaxed">
-          تأكيد الحذف
-        </h3>
-        <p className="text-gray-600 dark:text-gray-400 text-lg leading-relaxed">
-          هل أنت متأكد أنك تريد حذف هذا الصنف؟ سيتم حذف البيانات الخاصة به فقط
-          في هذا الشهر.
-        </p>
-      </div>
-      <div className="flex justify-end gap-4 mt-6">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onCancel}
-          className="px-6 py-3 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold text-gray-700 dark:text-gray-300 transition-all duration-200 flex items-center gap-2"
-        >
-          <span>❌</span>
-          <span>إلغاء</span>
-        </motion.button>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onConfirm}
-          className="px-6 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white font-bold hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center gap-2 shadow-lg"
-        >
-          <span>🗑️</span>
-          <span>نعم، احذف</span>
-        </motion.button>
-      </div>
-    </div>
-  </div>
+      <motion.div
+        className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-2xl max-w-md w-full border-t-4 border-red-400 dark:border-red-600 font-[Cairo]"
+        onClick={(e) => e.stopPropagation()}
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        transition={{ duration: 0.2 }}
+      >
+        <div className="text-center mb-6">
+          <motion.div
+            className="text-4xl mb-4"
+            animate={{
+              scale: [1, 1.1, 1],
+              rotate: [0, 5, -5, 0],
+            }}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
+          >
+            ⚠️
+          </motion.div>
+          <h3 className="text-2xl font-extrabold text-red-700 dark:text-red-400 mb-2 tracking-wide leading-relaxed">
+            تأكيد الحذف
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 text-lg leading-relaxed">
+            هل أنت متأكد أنك تريد حذف هذا الصنف؟ سيتم حذف البيانات الخاصة به فقط
+            في هذا الشهر.
+          </p>
+        </div>
+        <div className="flex justify-end gap-4 mt-6">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onCancel}
+            className="px-6 py-3 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold text-gray-700 dark:text-gray-300 transition-all duration-200 flex items-center gap-2"
+          >
+            <span>❌</span>
+            <span>إلغاء</span>
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onConfirm}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white font-bold hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center gap-2 shadow-lg"
+          >
+            <span>🗑️</span>
+            <span>نعم، احذف</span>
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  </AnimatePresence>
 );
 
 const DailyDispenseTable = ({
@@ -64,13 +78,17 @@ const DailyDispenseTable = ({
   deleteItem,
   month,
   year,
+  handleMonthYearChange,
 }) => {
+  const toast = useToast();
   const [deleteIndex, setDeleteIndex] = useState(null);
+  const [showMonthYearModal, setShowMonthYearModal] = useState(false);
   const confirmDelete = (index) => setDeleteIndex(index);
   const cancelDelete = () => setDeleteIndex(null);
   const handleConfirmDelete = () => {
     deleteItem(deleteIndex);
     setDeleteIndex(null);
+    toast("تم حذف الصنف بنجاح!", "success");
   };
   const getDaysInMonth = (m, y) => {
     const date = new Date(y, m, 1);
@@ -83,219 +101,408 @@ const DailyDispenseTable = ({
   };
   const days = getDaysInMonth(month, year);
   const handleValueChange = (index, day, value) => {
+    if (!items || !items[index]) return;
     const item = items[index];
     const updatedDispense = { ...item.dailyDispense, [day]: Number(value) };
     updateItem(index, { dailyDispense: updatedDispense });
+    toast("تم تحديث المنصرف اليومي!", "success");
   };
-  const getTotal = (item) =>
-    days.reduce((acc, d) => acc + (item.dailyDispense?.[d] || 0), 0);
-  const getTotalIncoming = (item) =>
-    days.reduce((acc, d) => acc + (item.dailyIncoming?.[d] || 0), 0);
 
-  // Add page number to each item if not present
-  React.useEffect(() => {
-    items.forEach((item, idx) => {
-      if (item.pageNumber === undefined) {
-        updateItem(idx, { ...item, pageNumber: "" });
+  const getTotal = (item) => {
+    if (!item || !item.dailyDispense) return 0;
+    const total = Object.values(item.dailyDispense).reduce(
+      (sum, val) => sum + (Number(val) || 0),
+      0
+    );
+    return Math.floor(Number(total));
+  };
+
+  const getTotalIncoming = (item) => {
+    if (!item || !item.dailyIncoming) return 0;
+    const total = Object.values(item.dailyIncoming).reduce(
+      (sum, val) => sum + (Number(val) || 0),
+      0
+    );
+    return Math.floor(Number(total));
+  };
+
+  // New calculation functions for the additional columns
+  const getTotalOpeningAndIncoming = (item) => {
+    if (!item) return 0;
+    const opening = Math.floor(Number(item.opening) || 0);
+    const totalIncoming = getTotalIncoming(item);
+    return Math.floor(Number(opening + totalIncoming));
+  };
+
+  const getRemainingStock = (item) => {
+    if (!item) return 0;
+    const totalOpeningAndIncoming = getTotalOpeningAndIncoming(item);
+    const totalDispensed = getTotal(item);
+    return Math.floor(Number(totalOpeningAndIncoming - totalDispensed));
+  };
+
+  // Memoized calculations to avoid repeated computations
+  const memoizedCalculations = useMemo(() => {
+    if (!items || !Array.isArray(items)) {
+      return {
+        totalItems: 0,
+        totalDispensed: 0,
+        totalDays: 0,
+        dailyAverage: 0,
+        totalOpeningAndIncoming: 0,
+        remainingStock: 0,
+      };
+    }
+
+    const calculations = items.reduce(
+      (acc, item) => {
+        const totalDispensed = Object.values(item.dailyDispense || {}).reduce(
+          (sum, val) => sum + (Number(val) || 0),
+          0
+        );
+        const totalIncoming = Object.values(item.dailyIncoming || {}).reduce(
+          (sum, val) => sum + (Number(val) || 0),
+          0
+        );
+        const opening = Math.floor(Number(item.opening || 0));
+        const totalOpeningAndIncoming = opening + totalIncoming;
+        const remainingStock = totalOpeningAndIncoming - totalDispensed;
+        const daysWithData = Object.keys(item.dailyDispense || {}).length;
+
+        return {
+          totalItems: acc.totalItems + 1,
+          totalDispensed: acc.totalDispensed + totalDispensed,
+          totalDays: Math.max(acc.totalDays, daysWithData),
+          totalOpeningAndIncoming:
+            acc.totalOpeningAndIncoming + totalOpeningAndIncoming,
+          remainingStock: acc.remainingStock + remainingStock,
+        };
+      },
+      {
+        totalItems: 0,
+        totalDispensed: 0,
+        totalDays: 0,
+        totalOpeningAndIncoming: 0,
+        remainingStock: 0,
       }
-    });
-    // eslint-disable-next-line
+    );
+
+    return {
+      ...calculations,
+      totalDispensed: Math.floor(calculations.totalDispensed),
+      totalOpeningAndIncoming: Math.floor(calculations.totalOpeningAndIncoming),
+      remainingStock: Math.floor(calculations.remainingStock),
+      dailyAverage:
+        calculations.totalDays > 0
+          ? Math.floor(calculations.totalDispensed / calculations.totalDays)
+          : 0,
+    };
   }, [items]);
 
   return (
-    <div className="relative w-full">
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="bg-gradient-to-r from-red-600 to-pink-700 rounded-2xl p-6 text-white shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📤</span>
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold">المنصرف اليومي</h2>
+              <p className="text-red-100 mt-1">تسجيل الأصناف المنصرفة يومياً</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowMonthYearModal(true)}
+              className="px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl font-bold hover:bg-white/30 transition-all duration-300 shadow-lg flex items-center gap-2 border border-white/30"
+            >
+              <Calendar className="w-5 h-5" />
+              <span>تغيير الشهر/السنة</span>
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={addItem}
+              className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:from-green-600 hover:to-emerald-700 transition-all duration-300 shadow-lg flex items-center gap-2"
+            >
+              <span className="text-xl">➕</span>
+              <span>إضافة صنف</span>
+            </motion.button>
+          </div>
+        </div>
+      </div>
+
+      {/* Statistics Cards - Separated from table */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-red-100 text-sm">إجمالي الأصناف</p>
+              <p className="text-3xl font-bold">{items?.length || 0}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📦</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-orange-100 text-sm">إجمالي المنصرف</p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.totalDispensed}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📤</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-100 text-sm">إجمالي الافتتاحي والوارد</p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.totalOpeningAndIncoming}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📥</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-100 text-sm">الرصيد المتبقي</p>
+              <p className="text-3xl font-bold">
+                {memoizedCalculations.remainingStock}
+              </p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">💰</span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Table Container - Static width with internal scrolling */}
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-200">
+        <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-bold text-gray-800">
+              جدول المنصرف اليومي
+            </h3>
+            <div className="flex items-center gap-3">
+              <div className="text-sm text-gray-600">
+                {new Date(year, month).toLocaleString("ar-EG", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={addItem}
+                className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-bold hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-lg flex items-center gap-2"
+              >
+                <span className="text-lg">➕</span>
+                <span>إضافة صنف</span>
+              </motion.button>
+            </div>
+          </div>
+        </div>
+
+        {/* Static width container with internal scroll */}
+        <div
+          className="w-full"
+          style={{ maxWidth: "1200px", margin: "0 auto" }}
+        >
+          <div className="mb-2 text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2 px-4">
+            <span>↔️ اسحب للجانب لرؤية جميع الأعمدة</span>
+          </div>
+          <div
+            className="overflow-x-auto border-2 border-red-300 rounded-xl bg-white shadow-lg mx-4 mb-4"
+            style={{
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "thin",
+              scrollbarColor: "#888 #f1f1f1",
+              height: "500px",
+              overflowX: "auto",
+              overflowY: "auto",
+            }}
+          >
+            <table
+              className="w-full text-right font-[Cairo]"
+              style={{
+                minWidth: `${Math.max((days.length + 7) * 150, 1200)}px`,
+                width: "max-content",
+                tableLayout: "fixed",
+              }}
+            >
+              <thead className="bg-gradient-to-r from-red-50 to-pink-50 sticky top-0 z-10">
+                <tr>
+                  <th className="p-4 font-bold text-red-800 border-b border-red-200 sticky right-0 bg-gradient-to-r from-red-50 to-pink-50 z-20">
+                    🏷️ الصنف
+                  </th>
+                  {days.map((d) => (
+                    <th
+                      key={d}
+                      className="p-4 font-bold text-red-800 border-b border-red-200"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-lg">{`يوم ${d}`}</span>
+                        <span className="text-xs text-red-600">📤 منصرف</span>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="p-4 font-bold text-red-800 border-b border-red-200 bg-red-100">
+                    📤 إجمالي المنصرف
+                  </th>
+                  <th className="p-4 font-bold text-green-800 border-b border-green-200 bg-green-100">
+                    📥 إجمالي الافتتاحي والوارد
+                  </th>
+                  <th className="p-4 font-bold text-blue-800 border-b border-blue-200 bg-blue-100">
+                    💰 الرصيد المتبقي
+                  </th>
+                  <th className="p-4 font-bold text-gray-800 border-b border-gray-200">
+                    🗑️ حذف
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <AnimatePresence>
+                  {items?.map((item, index) => (
+                    <motion.tr
+                      key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`${
+                        index % 2 === 0 ? "bg-white" : "bg-gray-50"
+                      } hover:bg-red-50 transition-colors duration-200`}
+                    >
+                      <td className="p-4 font-bold text-gray-800 border-b border-gray-200 sticky right-0 bg-white shadow-[-4px_0_8px_rgba(0,0,0,0.1)] z-10">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) =>
+                            updateItem(index, { name: e.target.value })
+                          }
+                          className="w-full border-2 border-gray-300 px-4 py-3 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-500 transition-all duration-200"
+                          placeholder="اسم الصنف"
+                        />
+                      </td>
+                      {days.map((day) => (
+                        <td key={day} className="p-4 border-b border-gray-200">
+                          <input
+                            type="number"
+                            value={item.dailyDispense?.[day] || ""}
+                            onChange={(e) => {
+                              const newValue =
+                                e.target.value === ""
+                                  ? 0
+                                  : Math.floor(Number(e.target.value));
+                              handleValueChange(index, day, newValue);
+                            }}
+                            className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-red-50"
+                            placeholder="0"
+                            min="0"
+                            step="1"
+                          />
+                        </td>
+                      ))}
+                      <td className="p-4 border-b border-gray-200 font-bold text-gray-800">
+                        {getTotal(item)}
+                      </td>
+                      <td className="p-4 border-b border-gray-200 font-bold text-gray-800">
+                        {getTotalOpeningAndIncoming(item)}
+                      </td>
+                      <td className="p-4 border-b border-gray-200 font-bold text-blue-600">
+                        {getRemainingStock(item)}
+                      </td>
+                      <td className="p-4 border-b border-gray-200">
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => confirmDelete(index)}
+                          className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                        >
+                          🗑️
+                        </motion.button>
+                      </td>
+                    </motion.tr>
+                  ))}
+                  {(!items || items.length === 0) && (
+                    <motion.tr
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="bg-gray-50"
+                    >
+                      <td
+                        colSpan={days.length + 5}
+                        className="p-8 text-center text-gray-500 text-lg"
+                      >
+                        لا توجد أصناف مضافة بعد. اضغط على "إضافة صنف" لبدء
+                        التسجيل.
+                      </td>
+                    </motion.tr>
+                  )}
+                </AnimatePresence>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Month/Year Modal */}
+      <MonthYearModal
+        open={showMonthYearModal}
+        onClose={() => setShowMonthYearModal(false)}
+        month={month}
+        setMonth={handleMonthYearChange}
+        year={year}
+        setYear={handleMonthYearChange}
+        handleMonthYearChange={handleMonthYearChange}
+      />
+
+      {/* Delete Confirmation Modal */}
       {deleteIndex !== null && (
         <ConfirmDeleteModal
           onConfirm={handleConfirmDelete}
           onCancel={cancelDelete}
         />
       )}
-      <div
-        className="overflow-x-auto w-full"
-        style={{ WebkitOverflowScrolling: "touch" }}
-      >
-        <table
-          className="border-2 border-gray-300 text-base text-right font-[Cairo] font-sans w-max rounded-xl overflow-hidden relative bg-white"
-          style={{
-            minWidth: `${(days.length + 10) * 120}px`,
-            width: "max-content",
-          }}
-        >
-          <thead className="bg-gradient-to-r from-blue-100 to-blue-200 text-gray-800 sticky top-0 z-10 shadow-md">
-            <tr>
-              <th className="p-4 border-b border-gray-300 font-bold text-lg text-gray-800">
-                ✔️
-              </th>
-              <th
-                className="p-4 border-b border-gray-300 min-w-[80px] font-bold text-lg text-gray-800"
-                title="رقم الصفحة"
-              >
-                #️⃣ رقم الصفحة
-              </th>
-              <th
-                className="p-4 border-b border-gray-300 min-w-[200px] font-bold text-lg sticky right-0 bg-gradient-to-r from-blue-100 to-blue-200 z-40 border-l-2 border-blue-300 text-gray-800"
-                title="اسم الصنف"
-              >
-                🏷️ الصنف
-              </th>
-              {days.map((d) => (
-                <th
-                  key={d}
-                  className="p-4 border-b border-gray-300 font-bold text-lg text-gray-800"
-                  title={`اليوم ${d}`}
-                >{`يوم ${d}`}</th>
-              ))}
-              <th
-                className="p-4 border-b border-gray-300 bg-green-50 font-bold text-lg text-gray-800"
-                title="الافتتاحي + الوارد"
-              >
-                📥 الافتتاحي + الوارد
-              </th>
-              <th
-                className="p-4 border-b border-gray-300 bg-red-50 font-bold text-lg text-gray-800"
-                title="المنصرف"
-              >
-                📤 المنصرف
-              </th>
-              <th
-                className="p-4 border-b border-gray-300 bg-yellow-50 font-bold text-lg text-gray-800"
-                title="المتبقي"
-              >
-                🟡 المتبقي
-              </th>
-              <th className="p-4 border-b border-gray-300 font-bold text-lg text-gray-800">
-                🗑️ حذف
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, idx) => {
-              const totalDispensed = getTotal(item);
-              const totalIncoming = getTotalIncoming(item);
-              const overallStock = item.opening + totalIncoming;
-              const remaining = overallStock - totalDispensed;
-
-              return (
-                <motion.tr
-                  key={idx}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="odd:bg-white even:bg-gray-50 hover:bg-blue-50 transition-colors duration-150"
-                >
-                  <td className="p-4 border-b border-gray-200 text-center bg-white text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={item.selected || false}
-                      onChange={(e) =>
-                        updateItem(idx, { selected: e.target.checked })
-                      }
-                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 focus:border-blue-500 text-gray-800"
-                    />
-                  </td>
-                  <td className="p-4 border-b border-gray-200 min-w-[80px] bg-white text-gray-800">
-                    <input
-                      type="text"
-                      value={item.pageNumber || ""}
-                      onChange={(e) =>
-                        updateItem(idx, { pageNumber: e.target.value })
-                      }
-                      className="w-full border-2 border-gray-300 px-3 py-2 rounded-lg text-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500 text-gray-800"
-                    />
-                  </td>
-                  <td className="p-4 border-b border-gray-200 min-w-[200px] sticky right-0 bg-white z-30 shadow-[-4px_0_8px_rgba(0,0,0,0.1)] text-gray-800">
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) =>
-                        updateItem(idx, { name: e.target.value })
-                      }
-                      className="w-full border-2 border-gray-300 px-3 py-2 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500 text-gray-800"
-                    />
-                  </td>
-                  {days.map((d) => (
-                    <td
-                      key={d}
-                      className="p-3 border-b border-gray-200 bg-white text-gray-800"
-                    >
-                      <input
-                        type="number"
-                        value={item.dailyDispense?.[d] || ""}
-                        onChange={(e) =>
-                          handleValueChange(idx, d, e.target.value)
-                        }
-                        className="w-28 text-center px-3 py-2 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-500 text-gray-800"
-                      />
-                    </td>
-                  ))}
-                  <td className="p-4 border-b border-gray-200 bg-green-50 font-bold text-green-800 text-gray-800">
-                    {overallStock}
-                  </td>
-                  <td className="p-4 border-b border-gray-200 bg-red-50 font-bold text-red-700 text-gray-800">
-                    {totalDispensed}
-                  </td>
-                  <td className="p-4 border-b border-gray-200 bg-yellow-50 font-bold text-yellow-800 text-gray-800">
-                    {remaining}
-                  </td>
-                  <td className="p-4 border-b border-gray-200 bg-white text-gray-800">
-                    <motion.button
-                      whileHover={{ scale: 1.2 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => confirmDelete(idx)}
-                      className="text-red-600 hover:text-red-800 font-bold p-2 rounded-lg hover:bg-red-100 transition-all duration-200 text-gray-800"
-                      title="حذف هذا الصنف"
-                    >
-                      🗑️
-                    </motion.button>
-                  </td>
-                </motion.tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {items.length === 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center py-12"
-        >
-          <div className="text-6xl mb-4">📤</div>
-          <h3 className="text-xl font-bold text-gray-600 mb-2">
-            لا توجد بيانات للعرض
-          </h3>
-          <p className="text-gray-500">
-            أضف بيانات في الجداول أعلاه لعرض المنصرف اليومي
-          </p>
-        </motion.div>
-      )}
-
-      <motion.button
-        whileHover={{
-          scale: 1.05,
-          boxShadow: "0 8px 32px rgba(34, 197, 94, 0.3)",
-        }}
-        whileTap={{ scale: 0.95 }}
-        onClick={addItem}
-        className="mt-6 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-xl hover:from-green-600 hover:to-green-700 transition-all duration-300 shadow-lg font-bold flex items-center gap-3"
-      >
-        <span className="text-xl">➕</span>
-        <span>إضافة صنف جديد</span>
-        <motion.div
-          className="w-2 h-2 bg-white rounded-full"
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.5, 1, 0.5],
-          }}
-          transition={{
-            duration: 1.5,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
-      </motion.button>
     </div>
   );
 };
+
 export default DailyDispenseTable;

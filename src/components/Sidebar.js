@@ -1,240 +1,363 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { getAuth } from "firebase/auth";
+import { logout as firebaseLogout } from "../utils/authService";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSidebar } from "./SidebarContext";
 import {
-  HomeIcon,
-  ChartBarIcon,
-  ClipboardListIcon,
-  DocumentReportIcon,
-  CogIcon,
-  MenuIcon,
-  XIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "@heroicons/react/outline";
+  Building2,
+  User2,
+  CalendarDays,
+  Menu,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Home,
+} from "lucide-react";
 
-const ICONS = {
-  dashboard: HomeIcon,
-  dispense: ClipboardListIcon,
-  incoming: DocumentReportIcon,
-  stock: ChartBarIcon,
-  transfer: CogIcon,
-  report: ChartBarIcon,
-  chart: ChartBarIcon,
-  custom: HomeIcon,
-};
+const navLinks = [
+  {
+    name: "الرئيسية",
+    path: "/lead/home",
+    icon: <Home size={20} />,
+    description: "لوحة التحكم الرئيسية",
+  },
+  {
+    name: "الصيدليات",
+    path: "/lead/pharmacies",
+    icon: <Building2 size={20} />,
+    description: "إدارة الصيدليات والمراقبة",
+  },
+  {
+    name: "الصيادلة",
+    path: "/lead/pharmacists",
+    icon: <User2 size={20} />,
+    description: "إدارة الصيادلة والتعيينات",
+  },
+  {
+    name: "الحضور",
+    path: "/lead/attendance",
+    icon: <CalendarDays size={20} />,
+    description: "مراقبة الحضور اليومي",
+  },
+];
 
-const TAB_COLORS = {
-  dashboard: "from-cyan-500 to-cyan-600",
-  dispense: "from-blue-500 to-blue-600",
-  incoming: "from-green-500 to-green-600",
-  stock: "from-yellow-500 to-yellow-600",
-  transfer: "from-orange-500 to-orange-600",
-  report: "from-purple-500 to-purple-600",
-  chart: "from-indigo-500 to-indigo-600",
-  custom: "from-pink-500 to-pink-600",
-};
+export default function Sidebar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const {
+    sidebarCollapsed,
+    mobileOpen,
+    toggleSidebar,
+    toggleMobile,
+    closeMobile,
+  } = useSidebar();
+  const [isHovering, setIsHovering] = useState(false);
 
-const Sidebar = ({
-  tabs,
-  activeTab,
-  setActiveTab,
-  collapsed,
-  setCollapsed,
-  mobileDrawer,
-  setMobileDrawer,
-}) => {
-  // Responsive: show drawer on mobile
-  React.useEffect(() => {
+  // Auto-collapse on mobile when screen size changes
+  useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth < 768) setCollapsed(true);
-      else setCollapsed(false);
+      if (window.innerWidth < 768) {
+        // Reset sidebar state on mobile
+      }
     };
     window.addEventListener("resize", handleResize);
-    handleResize();
     return () => window.removeEventListener("resize", handleResize);
-  }, [setCollapsed]);
+  }, []);
 
-  // Show FAB to open sidebar if collapsed/hidden
-  const showFab = collapsed && !mobileDrawer;
+  const handleLogout = async () => {
+    const auth = getAuth();
+    if (auth.currentUser) {
+      await firebaseLogout();
+      navigate("/login");
+    } else if (localStorage.getItem("pharmaUser")) {
+      localStorage.removeItem("pharmaUser");
+      navigate("/login");
+    }
+  };
+
+  const sidebarVariants = {
+    expanded: {
+      width: 256,
+      transition: {
+        duration: 0.3,
+        ease: "easeInOut",
+      },
+    },
+    collapsed: {
+      width: 80,
+      transition: {
+        duration: 0.3,
+        ease: "easeInOut",
+      },
+    },
+  };
+
+  const contentVariants = {
+    expanded: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.2,
+        delay: 0.1,
+      },
+    },
+    collapsed: {
+      opacity: 0,
+      x: -20,
+      transition: {
+        duration: 0.2,
+      },
+    },
+  };
+
+  const mobileVariants = {
+    open: {
+      x: 0,
+      transition: {
+        type: "spring",
+        stiffness: 300,
+        damping: 30,
+      },
+    },
+    closed: {
+      x: "100%",
+      transition: {
+        type: "spring",
+        stiffness: 300,
+        damping: 30,
+      },
+    },
+  };
 
   return (
     <>
-      {/* Mobile Drawer Button */}
-      <div className="md:hidden fixed top-4 left-4 z-50">
-        <motion.button
-          onClick={() => setMobileDrawer(true)}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-3 rounded-full shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-400 transition-all duration-200"
-          aria-label="فتح القائمة"
+      {/* Enhanced Hamburger for mobile */}
+      <motion.button
+        className="md:hidden fixed top-4 right-4 z-50 bg-gradient-to-r from-purple-700 to-fuchsia-600 text-white p-3 rounded-xl shadow-2xl focus:outline-none"
+        onClick={toggleMobile}
+        aria-label="Toggle sidebar"
+        whileHover={{ scale: 1.1, rotate: 5 }}
+        whileTap={{ scale: 0.9 }}
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <AnimatePresence mode="wait">
+          {mobileOpen ? (
+            <motion.div
+              key="close"
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: 90, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <X size={24} />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="menu"
+              initial={{ rotate: 90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: -90, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Menu size={24} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.button>
+
+      {/* Enhanced Sidebar */}
+      <motion.aside
+        className={`
+          font-sans
+          fixed md:static top-0 right-0 z-40 h-full md:h-auto
+          bg-gray-950 border-l-2 border-fuchsia-700 flex flex-col min-h-screen
+          shadow-2xl backdrop-blur-sm
+          ${mobileOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
+        `}
+        variants={sidebarVariants}
+        animate={sidebarCollapsed ? "collapsed" : "expanded"}
+        style={{ minWidth: sidebarCollapsed ? 80 : 256 }}
+        dir="rtl"
+        onHoverStart={() => setIsHovering(true)}
+        onHoverEnd={() => setIsHovering(false)}
+      >
+        {/* Enhanced Header */}
+        <motion.div
+          className="flex items-center gap-3 px-6 py-6 border-b border-fuchsia-700/50"
+          variants={contentVariants}
+          animate={sidebarCollapsed ? "collapsed" : "expanded"}
         >
-          <MenuIcon className="h-6 w-6" />
-        </motion.button>
-      </div>
-
-      {/* Sidebar (desktop) */}
-      <AnimatePresence>
-        {(!collapsed || mobileDrawer) && (
-          <motion.aside
-            initial={{ x: -300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -300, opacity: 0 }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 30,
-              duration: 0.3,
-            }}
-            className={`fixed top-0 left-0 h-full z-40 bg-white dark:bg-gray-900 shadow-2xl border-r border-gray-200 dark:border-gray-700 w-72 md:w-64 flex flex-col pt-8 px-4 md:relative md:translate-x-0 md:opacity-100 ${
-              mobileDrawer ? "" : "hidden md:flex"
-            }`}
-            style={{ minHeight: "100vh" }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">💊</span>
-                <span className="text-lg font-bold text-gray-800 dark:text-gray-200 font-[Cairo]">
-                  Pharma
-                </span>
-              </div>
-              <button
-                onClick={() => setMobileDrawer(false)}
-                className="md:hidden bg-gray-200 dark:bg-gray-700 p-2 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                aria-label="إغلاق القائمة"
-              >
-                <XIcon className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Tab Cards */}
-            <nav className="flex flex-col gap-3 flex-1">
-              {tabs.map((tab) => {
-                const Icon = ICONS[tab.key] || HomeIcon;
-                const isActive = activeTab === tab.key;
-                const colorClass =
-                  TAB_COLORS[tab.key] || "from-gray-500 to-gray-600";
-
-                return (
-                  <motion.button
-                    key={tab.key}
-                    onClick={() => {
-                      setActiveTab(tab.key);
-                      setMobileDrawer(false);
-                    }}
-                    whileHover={{
-                      scale: 1.02,
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
-                    }}
-                    whileTap={{ scale: 0.98 }}
-                    className={`group flex items-center gap-4 px-4 py-4 rounded-xl shadow-lg font-bold text-lg transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-400 font-[Cairo] relative overflow-hidden ${
-                      isActive
-                        ? `bg-gradient-to-r ${colorClass} text-white shadow-xl`
-                        : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600"
-                    }`}
-                    style={{
-                      backdropFilter: "blur(10px)",
-                    }}
-                    tabIndex={0}
-                    aria-label={tab.label}
-                    aria-current={isActive ? "page" : undefined}
-                  >
-                    {/* Active indicator */}
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeTab"
-                        className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent"
-                        initial={false}
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 30,
-                        }}
-                      />
-                    )}
-
-                    {/* Icon */}
-                    <div
-                      className={`relative z-10 p-2 rounded-lg ${
-                        isActive
-                          ? "bg-white/20"
-                          : "bg-gray-100 dark:bg-gray-700 group-hover:bg-blue-100 dark:group-hover:bg-blue-900"
-                      }`}
-                    >
-                      <Icon
-                        className={`h-6 w-6 ${
-                          isActive
-                            ? "text-white"
-                            : "text-gray-600 dark:text-gray-400"
-                        }`}
-                      />
-                    </div>
-
-                    {/* Label */}
-                    <span
-                      className={`relative z-10 truncate text-lg font-extrabold tracking-wide leading-relaxed ${
-                        isActive
-                          ? "text-white"
-                          : "text-gray-800 dark:text-gray-200"
-                      }`}
-                    >
-                      {tab.label}
-                    </span>
-
-                    {/* Hover effect */}
-                    <motion.div
-                      className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100"
-                      initial={false}
-                      transition={{ duration: 0.2 }}
-                    />
-                  </motion.button>
-                );
-              })}
-            </nav>
-
-            {/* Footer */}
-            <div className="mt-auto pb-6">
-              {/* Collapse Button (desktop) */}
-              <div className="hidden md:block">
-                <motion.button
-                  onClick={() => setCollapsed((c) => !c)}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full bg-gray-100 dark:bg-gray-800 p-3 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
-                  title="إخفاء القائمة"
-                  aria-label="إخفاء القائمة"
+          <div className="flex items-center gap-3">
+            <motion.span
+              className="inline-block w-10 h-10 bg-gradient-to-r from-purple-700 to-fuchsia-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg"
+              whileHover={{ scale: 1.1, rotate: 360 }}
+              transition={{ duration: 0.3 }}
+            >
+              💊
+            </motion.span>
+            <AnimatePresence>
+              {!sidebarCollapsed && (
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  <ChevronLeftIcon className="h-5 w-5 mx-auto text-gray-600 dark:text-gray-400" />
-                </motion.button>
-              </div>
+                  <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">
+                    فارماكير برو
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-              {/* Version info */}
-              <div className="text-center mt-4 text-xs text-gray-500 dark:text-gray-400 font-[Cairo]">
-                v1.0.0
-              </div>
-            </div>
-          </motion.aside>
+          {/* Enhanced Collapse button for desktop */}
+          <motion.button
+            className="mr-auto hidden md:flex items-center justify-center p-2 rounded-lg hover:bg-gray-900/50 transition-colors"
+            onClick={toggleSidebar}
+            aria-label="Collapse sidebar"
+            whileHover={{
+              scale: 1.1,
+              backgroundColor: "rgba(139, 92, 246, 0.1)",
+            }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <AnimatePresence mode="wait">
+              {sidebarCollapsed ? (
+                <motion.div
+                  key="expand"
+                  initial={{ rotate: -90, opacity: 0 }}
+                  animate={{ rotate: 0, opacity: 1 }}
+                  exit={{ rotate: 90, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronRight size={20} className="text-fuchsia-400" />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="collapse"
+                  initial={{ rotate: 90, opacity: 0 }}
+                  animate={{ rotate: 0, opacity: 1 }}
+                  exit={{ rotate: -90, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronLeft size={20} className="text-fuchsia-400" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        </motion.div>
+
+        {/* Enhanced Navigation */}
+        <nav className="flex-1 px-4 py-6 space-y-3">
+          {navLinks.map((link, index) => (
+            <motion.div
+              key={link.path}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              <Link
+                to={link.path}
+                className={`group relative flex items-center gap-3 px-4 py-4 rounded-xl font-medium transition-all duration-300 font-sans text-base
+                  ${sidebarCollapsed ? "justify-center px-2" : ""}
+                  ${
+                    location.pathname.startsWith(link.path)
+                      ? "bg-gradient-to-r from-purple-700 to-fuchsia-600 text-white shadow-lg"
+                      : "text-fuchsia-400 hover:bg-gray-900/50 hover:text-white"
+                  }
+                `}
+                title={sidebarCollapsed ? link.name : link.description}
+                onClick={closeMobile}
+              >
+                {/* Hover effect background */}
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-fuchsia-600/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                {/* Icon with animation */}
+                <motion.div
+                  className="relative z-10"
+                  whileHover={{ scale: 1.1, rotate: 5 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  {link.icon}
+                </motion.div>
+
+                {/* Text with slide animation */}
+                <AnimatePresence>
+                  {!sidebarCollapsed && (
+                    <motion.div
+                      className="relative z-10"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <span>{link.name}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Active indicator */}
+                {location.pathname.startsWith(link.path) && (
+                  <motion.div
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-fuchsia-400 rounded-r-full"
+                    layoutId="activeIndicator"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+              </Link>
+            </motion.div>
+          ))}
+        </nav>
+
+        {/* Enhanced Footer */}
+        <motion.div
+          className="mt-auto px-6 pb-6 space-y-3"
+          variants={contentVariants}
+          animate={sidebarCollapsed ? "collapsed" : "expanded"}
+        >
+          {/* Enhanced Logout Button */}
+          <motion.button
+            onClick={handleLogout}
+            className="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white py-4 rounded-xl hover:from-red-700 hover:to-pink-700 font-bold font-sans transition-all duration-300 shadow-lg hover:shadow-red-500/25 flex items-center justify-center gap-3"
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <LogOut size={18} />
+            <AnimatePresence>
+              {!sidebarCollapsed && (
+                <motion.span
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  تسجيل الخروج
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        </motion.div>
+      </motion.aside>
+
+      {/* Enhanced Overlay for mobile */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={closeMobile}
+          />
         )}
       </AnimatePresence>
-
-      {/* Floating Action Button to show sidebar again */}
-      {showFab && (
-        <motion.button
-          initial={{ scale: 0, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0, opacity: 0 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setCollapsed(false)}
-          className="fixed top-4 right-4 z-50 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-full shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-400 transition-all duration-200"
-          title="إظهار القائمة"
-          aria-label="إظهار القائمة"
-        >
-          <ChevronRightIcon className="h-6 w-6" />
-        </motion.button>
-      )}
     </>
   );
-};
-
-export default Sidebar;
+}
