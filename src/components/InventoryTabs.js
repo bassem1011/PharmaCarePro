@@ -7,8 +7,9 @@ import CustomPageManager from "./CustomPageManager";
 import PharmacyShortages from "./PharmacyShortages";
 import { motion } from "framer-motion";
 import {
-  subscribeToMonthlyStock,
+  subscribeToPharmacyMonthlyStock,
   saveWithRetry,
+  createDefaultPharmacyAndMigrate,
 } from "../utils/firestoreService";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
@@ -99,57 +100,64 @@ const MonthYearModal = ({ open, onClose, month, setMonth, year, setYear }) => {
             تحديد الشهر والسنة
           </h3>
         </div>
-        <div className="mb-6 flex flex-col gap-4">
-          <label className="font-semibold text-gray-800">الشهر</label>
-          <select
-            className="border-2 border-gray-300 px-3 py-2 rounded-lg text-base text-gray-900 focus:ring-2 focus:ring-blue-400 focus:border-blue-500"
-            value={month}
-            onChange={(e) => setMonth(Number(e.target.value))}
-          >
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i} value={i}>{`شهر ${i + 1}`}</option>
-            ))}
-          </select>
-          <label className="font-semibold mt-2 text-gray-800">السنة</label>
-          <select
-            className="border-2 border-gray-300 px-3 py-2 rounded-lg text-base text-gray-900 focus:ring-2 focus:ring-blue-400 focus:border-blue-500"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {Array.from({ length: 5 }, (_, i) => (
-              <option key={i} value={2022 + i}>
-                {2022 + i}
-              </option>
-            ))}
-          </select>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              الشهر
+            </label>
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500 transition-all duration-200"
+            >
+              <option value={0}>يناير</option>
+              <option value={1}>فبراير</option>
+              <option value={2}>مارس</option>
+              <option value={3}>أبريل</option>
+              <option value={4}>مايو</option>
+              <option value={5}>يونيو</option>
+              <option value={6}>يوليو</option>
+              <option value={7}>أغسطس</option>
+              <option value={8}>سبتمبر</option>
+              <option value={9}>أكتوبر</option>
+              <option value={10}>نوفمبر</option>
+              <option value={11}>ديسمبر</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              السنة
+            </label>
+            <input
+              type="number"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500 transition-all duration-200"
+              min="2020"
+              max="2030"
+            />
+          </div>
         </div>
-        <div className="flex gap-4 justify-end mt-6">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+        <div className="flex gap-3 mt-6">
+          <button
             onClick={onClose}
-            className="px-6 py-3 rounded-xl bg-gray-200 hover:bg-gray-300 font-bold text-gray-700 transition-all duration-200 flex items-center gap-2"
+            className="flex-1 bg-gray-500 text-white py-3 rounded-xl font-bold hover:bg-gray-600 transition-colors"
           >
-            <span>❌</span>
-            <span>إلغاء</span>
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            إلغاء
+          </button>
+          <button
             onClick={onClose}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 font-bold transition-all duration-200 flex items-center gap-2 shadow-lg"
+            className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors"
           >
-            <span>✅</span>
-            <span>تأكيد</span>
-          </motion.button>
+            حفظ
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-// Shared inventory data hook
-export function useInventoryData() {
+export function useInventoryData(pharmacyId = null) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
@@ -159,14 +167,39 @@ export function useInventoryData() {
   const [modalOpen, setModalOpen] = useState(false);
   const [monthlyConsumption, setMonthlyConsumption] = useState({});
 
+  // Initialize default pharmacy and migrate data if needed
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        // If no pharmacyId is provided, create default pharmacy and migrate data
+        if (!pharmacyId) {
+          await createDefaultPharmacyAndMigrate();
+        }
+      } catch (err) {
+        console.error("Error initializing data:", err);
+        setError("فشل تهيئة البيانات");
+      }
+    };
+
+    initializeData();
+  }, [pharmacyId]);
+
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = subscribeToMonthlyStock((byMonth) => {
-      setItemsByMonth(byMonth);
-      setLoading(false);
-    });
+
+    // Use pharmacy-specific subscription if pharmacyId is provided
+    const unsubscribe = pharmacyId
+      ? subscribeToPharmacyMonthlyStock(pharmacyId, (byMonth) => {
+          setItemsByMonth(byMonth);
+          setLoading(false);
+        })
+      : subscribeToPharmacyMonthlyStock("default", (byMonth) => {
+          setItemsByMonth(byMonth);
+          setLoading(false);
+        });
+
     return () => unsubscribe();
-  }, []);
+  }, [pharmacyId]);
 
   useEffect(() => {
     if (Object.keys(itemsByMonth).length === 0) return;
@@ -174,12 +207,13 @@ export function useInventoryData() {
     // Save immediately when items are added/modified
     const saveData = async () => {
       try {
+        const currentPharmacyId = pharmacyId || "default";
         const savePromises = Object.entries(itemsByMonth).map(
           ([monthKey, items]) => {
             if (items && items.length > 0) {
               // Don't filter out items - let them persist even if empty
               // The validation will handle this in saveWithRetry
-              return saveWithRetry(monthKey, items);
+              return saveWithRetry(currentPharmacyId, monthKey, items);
             }
             return Promise.resolve();
           }
@@ -196,7 +230,7 @@ export function useInventoryData() {
     // Save immediately for new items, debounce for updates
     const handler = setTimeout(saveData, 500);
     return () => clearTimeout(handler);
-  }, [itemsByMonth]);
+  }, [itemsByMonth, pharmacyId]);
 
   const currentMonthKey = getMonthKey(year, month);
   const items = itemsByMonth[currentMonthKey] || [];
@@ -392,12 +426,15 @@ export function useInventoryData() {
 
       // Save immediately when adding new item
       setTimeout(() => {
-        saveWithRetry(currentMonthKey, updated[currentMonthKey]).catch(
-          (err) => {
-            setError("فشل حفظ الصنف الجديد");
-            console.error("Add item save error:", err);
-          }
-        );
+        const currentPharmacyId = pharmacyId || "default";
+        saveWithRetry(
+          currentPharmacyId,
+          currentMonthKey,
+          updated[currentMonthKey]
+        ).catch((err) => {
+          setError("فشل حفظ الصنف الجديد");
+          console.error("Add item save error:", err);
+        });
       }, 100);
 
       return updated;

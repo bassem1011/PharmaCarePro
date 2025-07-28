@@ -18,6 +18,7 @@ import { getAuth } from "firebase/auth";
 import { motion } from "framer-motion";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
+import { useInventoryData } from "./InventoryTabs";
 
 function getTodayDateString() {
   const d = new Date();
@@ -31,9 +32,6 @@ export default function PharmacyDetailsPage() {
   const [error, setError] = useState("");
   const [pharmacists, setPharmacists] = useState([]);
   const [loadingPharmacists, setLoadingPharmacists] = useState(true);
-  const [monthlyStock, setMonthlyStock] = useState({});
-  const [loadingStock, setLoadingStock] = useState(true);
-  const [stockError, setStockError] = useState("");
   const [shortages, setShortages] = useState([]);
   const [loadingShortages, setLoadingShortages] = useState(true);
   const [shortagesError, setShortagesError] = useState("");
@@ -56,8 +54,35 @@ export default function PharmacyDetailsPage() {
   const [deleteError, setDeleteError] = useState("");
   const [activeDetailView, setActiveDetailView] = useState(null);
 
+  // Use pharmacy-specific inventory data
+  const {
+    items,
+    monthlyConsumption,
+    loading: inventoryLoading,
+    error: inventoryError,
+  } = useInventoryData(pharmacyId);
+
   // Find current senior pharmacist
   const currentSenior = pharmacists.find((ph) => ph.role === "senior");
+
+  // Fetch pharmacists assigned to this pharmacy
+  useEffect(() => {
+    async function fetchPharmacists() {
+      setLoadingPharmacists(true);
+      try {
+        const usersSnap = await getDocs(collection(db, "users"));
+        const pharmacyPharmacists = usersSnap.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter((ph) => ph.assignedPharmacy === pharmacyId);
+        setPharmacists(pharmacyPharmacists);
+      } catch (err) {
+        console.error("Error fetching pharmacists:", err);
+      } finally {
+        setLoadingPharmacists(false);
+      }
+    }
+    fetchPharmacists();
+  }, [pharmacyId]);
 
   // Assign senior pharmacist handler
   const handleAssignSenior = async (e) => {
@@ -174,183 +199,77 @@ export default function PharmacyDetailsPage() {
     fetchPharmacy();
   }, [pharmacyId]);
 
+  // Calculate shortages based on pharmacy-specific data
   useEffect(() => {
-    async function fetchPharmacists() {
-      setLoadingPharmacists(true);
-      try {
-        const q = query(
-          collection(db, "users"),
-          where("assignedPharmacy", "==", pharmacyId)
-        );
-        const snapshot = await getDocs(q);
-        setPharmacists(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        );
-      } catch (err) {
-        // Optionally handle error
-      } finally {
-        setLoadingPharmacists(false);
-      }
+    if (!items || items.length === 0) {
+      setShortages([]);
+      setLoadingShortages(false);
+      return;
     }
-    fetchPharmacists();
-  }, [pharmacyId]);
 
-  // Fetch global monthly stock data (Lead Pharmacist sees all data)
-  useEffect(() => {
-    setLoadingStock(true);
-    setStockError("");
-
-    const fetchGlobalStock = async () => {
-      try {
-        // Get current month key
-        const now = new Date();
-        const currentMonthKey = `${now.getFullYear()}-${String(
-          now.getMonth() + 1
-        ).padStart(2, "0")}`;
-
-        // Fetch global monthly stock data
-        const stockRef = doc(db, "monthlyStock", currentMonthKey);
-        const stockSnap = await getDoc(stockRef);
-
-        if (stockSnap.exists()) {
-          const stockData = stockSnap.data();
-          const allItems = stockData.items || [];
-
-          console.log(
-            "Global monthly stock data for month:",
-            currentMonthKey,
-            allItems
-          );
-
-          setMonthlyStock({
-            [currentMonthKey]: allItems,
-          });
-        } else {
-          console.log(
-            "No monthly stock data found for month:",
-            currentMonthKey
-          );
-          setMonthlyStock({
-            [currentMonthKey]: [],
-          });
-        }
-        setLoadingStock(false);
-      } catch (error) {
-        console.error("Error fetching monthly stock:", error);
-        setStockError("فشل تحميل بيانات المخزون");
-        setLoadingStock(false);
-      }
-    };
-
-    fetchGlobalStock();
-  }, []);
-
-  // Calculate shortages based on monthly stock data
-  useEffect(() => {
     setLoadingShortages(true);
-    setShortagesError("");
-
     try {
-      // Get current month key
-      const now = new Date();
-      const currentMonthKey = `${now.getFullYear()}-${String(
-        now.getMonth() + 1
-      ).padStart(2, "0")}`;
-
-      // Get current month items
-      const currentItems = monthlyStock[currentMonthKey] || [];
-
-      console.log("Shortages calculation - Current items:", currentItems);
-      console.log("Current month key:", currentMonthKey);
-
-      // Calculate shortages (items with zero or negative stock)
-      const shortageItems = currentItems
+      const shortagesList = items
         .filter((item) => {
-          // Ensure proper number conversion
+          if (!item.name) return false;
+
           const opening = Math.floor(Number(item.opening || 0));
           const totalIncoming = Math.floor(
             Object.values(item.dailyIncoming || {}).reduce(
-              (acc, val) => acc + Math.floor(Number(val || 0)),
+              (acc, val) => acc + Number(val || 0),
               0
             )
           );
           const totalDispensed = Math.floor(
             Object.values(item.dailyDispense || {}).reduce(
-              (acc, val) => acc + Math.floor(Number(val || 0)),
+              (acc, val) => acc + Number(val || 0),
               0
             )
           );
           const currentStock = opening + totalIncoming - totalDispensed;
 
-          console.log(`Item: ${item.name}`, {
-            rawOpening: item.opening,
-            opening,
-            totalIncoming,
-            totalDispensed,
-            currentStock,
-            isShortage: currentStock <= 0,
-            dailyIncoming: item.dailyIncoming,
-            dailyDispense: item.dailyDispense,
-            calculation: `${opening} + ${totalIncoming} - ${totalDispensed} = ${currentStock}`,
-          });
+          // Get average consumption from monthlyConsumption
+          const consumption = monthlyConsumption[item.name];
+          const averageConsumption = consumption ? consumption.average : 10;
 
-          return currentStock <= 0;
+          return currentStock <= averageConsumption;
         })
         .map((item) => {
-          // Use the same calculation logic in the map function
           const opening = Math.floor(Number(item.opening || 0));
           const totalIncoming = Math.floor(
             Object.values(item.dailyIncoming || {}).reduce(
-              (acc, val) => acc + Math.floor(Number(val || 0)),
+              (acc, val) => acc + Number(val || 0),
               0
             )
           );
           const totalDispensed = Math.floor(
             Object.values(item.dailyDispense || {}).reduce(
-              (acc, val) => acc + Math.floor(Number(val || 0)),
+              (acc, val) => acc + Number(val || 0),
               0
             )
           );
           const currentStock = opening + totalIncoming - totalDispensed;
+
+          const consumption = monthlyConsumption[item.name];
+          const averageConsumption = consumption ? consumption.average : 10;
 
           return {
             name: item.name,
-            quantity: Math.abs(currentStock),
+            currentStock,
+            averageConsumption,
+            shortage: Math.max(0, averageConsumption - currentStock),
+            unitPrice: item.unitPrice || 0,
           };
-        });
+        })
+        .sort((a, b) => b.shortage - a.shortage);
 
-      console.log("Final shortage items:", shortageItems);
-
-      // Additional check: Look for items that might have zero stock but aren't detected
-      const zeroStockItems = currentItems.filter((item) => {
-        const opening = Math.floor(Number(item.opening || 0));
-        const totalIncoming = Math.floor(
-          Object.values(item.dailyIncoming || {}).reduce(
-            (acc, val) => acc + Math.floor(Number(val || 0)),
-            0
-          )
-        );
-        const totalDispensed = Math.floor(
-          Object.values(item.dailyDispense || {}).reduce(
-            (acc, val) => acc + Math.floor(Number(val || 0)),
-            0
-          )
-        );
-        const currentStock = opening + totalIncoming - totalDispensed;
-
-        return currentStock === 0;
-      });
-
-      console.log("Items with exactly zero stock:", zeroStockItems);
-
-      setShortages(shortageItems);
-      setLoadingShortages(false);
+      setShortages(shortagesList);
     } catch (err) {
-      console.error("Error calculating shortages:", err);
-      setShortagesError("فشل تحميل النواقص");
+      setShortagesError("فشل حساب النواقص");
+    } finally {
       setLoadingShortages(false);
     }
-  }, [monthlyStock]);
+  }, [items, monthlyConsumption]);
 
   // Fetch today's attendance
   useEffect(() => {
@@ -398,61 +317,63 @@ export default function PharmacyDetailsPage() {
 
   if (!pharmacy) return null;
 
-  // Get current month items for display
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(
-    now.getMonth() + 1
-  ).padStart(2, "0")}`;
-  const currentMonthItems = monthlyStock[currentMonthKey] || [];
+  // Calculate statistics for this pharmacy
+  const totalItems = items ? items.length : 0;
+  const totalDispensed = items
+    ? items.reduce((sum, item) => {
+        const itemTotal = Object.values(item.dailyDispense || {}).reduce(
+          (acc, val) => acc + Number(val || 0),
+          0
+        );
+        return sum + itemTotal;
+      }, 0)
+    : 0;
+  const totalIncoming = items
+    ? items.reduce((sum, item) => {
+        const itemTotal = Object.values(item.dailyIncoming || {}).reduce(
+          (acc, val) => acc + Number(val || 0),
+          0
+        );
+        return sum + itemTotal;
+      }, 0)
+    : 0;
+  const totalShortages = shortages ? shortages.length : 0;
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6" dir="rtl">
-      <div className="max-w-6xl mx-auto space-y-8">
-        {/* Welcome Message */}
-        <motion.div
-          className="mb-6"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <div className="bg-gradient-to-r from-fuchsia-900/30 to-purple-900/30 border-2 border-fuchsia-700/50 rounded-2xl p-6 backdrop-blur-sm">
-            <h2 className="text-2xl font-bold text-fuchsia-400 mb-2">
-              أهلاً بالصيدلي الأول
-            </h2>
-            <p className="text-gray-300">
-              مرحباً بك في لوحة تحكم الصيدليات. يمكنك مراجعة تفاصيل كل صيدلية
-              والبيانات المتعلقة بها.
-            </p>
-          </div>
-        </motion.div>
-
+    <div className="min-h-screen bg-gray-900 p-6">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="max-w-7xl mx-auto"
+      >
         {/* Header */}
         <motion.div
-          className="mb-8"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
+          className="bg-gradient-to-r from-purple-900 via-fuchsia-900 to-pink-900 rounded-3xl p-8 mb-8 shadow-2xl"
+          whileHover={{ scale: 1.01 }}
+          transition={{ duration: 0.3 }}
         >
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 via-purple-400 to-pink-400 mb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <h1 className="text-4xl font-black text-white mb-4">
                 {editing ? (
                   <motion.form
                     onSubmit={handleEditPharmacy}
-                    className="flex gap-4 items-center"
+                    className="flex items-center gap-4"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                   >
                     <input
                       type="text"
-                      className="border-2 border-fuchsia-700/50 rounded-xl px-6 py-4 bg-gray-900/80 text-white focus:ring-4 focus:ring-fuchsia-600/30 focus:border-fuchsia-500 transition-all duration-300 text-xl backdrop-blur-sm"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
+                      className="bg-white/20 text-white border-2 border-white/30 rounded-xl px-6 py-4 text-2xl font-bold focus:outline-none focus:ring-4 focus:ring-white/50 focus:border-white/50 transition-all duration-300 backdrop-blur-sm"
+                      placeholder="اسم الصيدلية"
                       required
                     />
                     <motion.button
                       type="submit"
-                      className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-4 rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300 font-bold shadow-2xl hover:shadow-green-500/25"
+                      className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-4 rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300 font-bold shadow-2xl"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
@@ -554,643 +475,550 @@ export default function PharmacyDetailsPage() {
           </motion.div>
         )}
 
-        {/* Assign Senior Pharmacist Section (lead only) */}
-        {user &&
-          user.email &&
-          pharmacists.length > 0 &&
-          user.role === "lead" && (
-            <motion.div
-              className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl p-8 border border-fuchsia-700/50 backdrop-blur-sm"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-            >
-              <h3 className="text-2xl font-bold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">
-                تعيين صيدلي خبير
-              </h3>
-              <form
-                onSubmit={handleAssignSenior}
-                className="flex gap-4 items-center"
-              >
-                <div className="relative flex-1">
-                  <select
-                    className="w-full border-2 border-fuchsia-700/50 rounded-xl px-6 py-4 bg-gray-900/80 text-white focus:ring-4 focus:ring-fuchsia-600/30 focus:border-fuchsia-500 transition-all duration-300 text-lg backdrop-blur-sm appearance-none"
-                    value={selectedSenior || currentSenior?.id || ""}
-                    onChange={(e) => setSelectedSenior(e.target.value)}
-                    required
-                  >
-                    <option value="">اختر صيدلي خبير</option>
-                    {pharmacists.map((ph) => (
-                      <option key={ph.id} value={ph.id}>
-                        {ph.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-fuchsia-600/20 to-purple-600/20 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                </div>
-                <motion.button
-                  type="submit"
-                  className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white px-8 py-4 rounded-xl hover:from-purple-700 hover:via-fuchsia-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-purple-500/25"
-                  disabled={!selectedSenior}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  حفظ
-                </motion.button>
-              </form>
-              {assignError && (
-                <motion.div
-                  className="text-red-400 mt-4 p-4 bg-red-900/20 rounded-xl border border-red-800"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  {assignError}
-                </motion.div>
-              )}
-              {assignSuccess && (
-                <motion.div
-                  className="text-green-400 mt-4 p-4 bg-green-900/20 rounded-xl border border-green-800"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  {assignSuccess}
-                </motion.div>
-              )}
-            </motion.div>
-          )}
-
-        {/* Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Assigned Pharmacists Section */}
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <motion.div
-            className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl p-8 border border-fuchsia-700/50 backdrop-blur-sm cursor-pointer"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            onClick={() => setActiveDetailView("pharmacists")}
-            whileHover={{ scale: 1.02, y: -2 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-xl"
           >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">
-                الصيادلة المعينون
-              </h3>
-              <div className="text-4xl">👨‍⚕️</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-100 text-sm">إجمالي الأصناف</p>
+                <p className="text-3xl font-bold">{totalItems}</p>
+              </div>
+              <div className="p-3 bg-white/20 rounded-xl">
+                <span className="text-2xl">📦</span>
+              </div>
             </div>
-            {loadingPharmacists ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-4 p-4 bg-gray-900/50 rounded-xl"
-                  >
-                    <Skeleton width={40} height={40} className="rounded-full" />
-                    <div className="flex-1">
-                      <Skeleton width="60%" height={20} className="mb-2" />
-                      <Skeleton width="40%" height={16} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : pharmacists.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-6xl mb-4">👨‍⚕️</div>
-                <div className="text-gray-400 text-lg">
-                  لا يوجد صيادلة معينون لهذه الصيدلية.
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {pharmacists.slice(0, 3).map((ph) => (
-                  <motion.div
-                    key={ph.id}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${
-                      ph.role === "senior"
-                        ? "bg-gradient-to-r from-purple-900/30 to-fuchsia-900/30 border-purple-700/50"
-                        : "bg-gray-900/50 border-gray-700/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="text-2xl">👨‍⚕️</div>
-                        <div>
-                          <div className="text-white font-bold text-lg">
-                            {ph.name}
-                          </div>
-                          <div className="text-gray-400 text-sm">
-                            {ph.username}
-                          </div>
-                        </div>
-                      </div>
-                      <div
-                        className={`px-3 py-1 rounded-lg text-sm font-bold ${
-                          ph.role === "senior"
-                            ? "bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white"
-                            : "bg-gray-700 text-gray-300"
-                        }`}
-                      >
-                        {ph.role === "senior" ? "صيدلي خبير" : "صيدلي"}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-                {pharmacists.length > 3 && (
-                  <div className="text-center py-4">
-                    <div className="text-fuchsia-400 font-bold">
-                      + {pharmacists.length - 3} صيدلي آخر
-                    </div>
-                    <div className="text-gray-400 text-sm">انقر لعرض الكل</div>
-                  </div>
-                )}
-              </div>
-            )}
           </motion.div>
 
-          {/* Monthly Stock Section */}
           <motion.div
-            className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl p-8 border border-fuchsia-700/50 backdrop-blur-sm cursor-pointer"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-br from-green-600 to-green-700 rounded-2xl p-6 text-white shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-100 text-sm">إجمالي الوارد</p>
+                <p className="text-3xl font-bold">{totalIncoming}</p>
+              </div>
+              <div className="p-3 bg-white/20 rounded-xl">
+                <span className="text-2xl">📥</span>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-6 text-white shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-red-100 text-sm">إجمالي المنصرف</p>
+                <p className="text-3xl font-bold">{totalDispensed}</p>
+              </div>
+              <div className="p-3 bg-white/20 rounded-xl">
+                <span className="text-2xl">📤</span>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-gradient-to-br from-orange-600 to-orange-700 rounded-2xl p-6 text-white shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-orange-100 text-sm">النواقص</p>
+                <p className="text-3xl font-bold">{totalShortages}</p>
+              </div>
+              <div className="p-3 bg-white/20 rounded-xl">
+                <span className="text-2xl">⚠️</span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Main Content */}
+        <motion.div
+          className="bg-gray-800/50 rounded-3xl p-8 shadow-2xl backdrop-blur-sm"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          {/* Navigation Tabs */}
+          <div className="flex flex-wrap gap-4 mb-8">
+            {[
+              { key: "overview", label: "نظرة عامة", icon: "📊" },
+              { key: "inventory", label: "المخزون", icon: "📦" },
+              { key: "shortages", label: "النواقص", icon: "⚠️" },
+              { key: "pharmacists", label: "الصيادلة", icon: "👨‍⚕️" },
+              { key: "attendance", label: "الحضور", icon: "📅" },
+            ].map((tab) => (
+              <motion.button
+                key={tab.key}
+                onClick={() => setActiveDetailView(tab.key)}
+                className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 flex items-center gap-2 ${
+                  activeDetailView === tab.key
+                    ? "bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white shadow-lg"
+                    : "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50"
+                }`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </motion.button>
+            ))}
+          </div>
+
+          {/* Content Based on Active Tab */}
+          <motion.div
+            key={activeDetailView}
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            onClick={() => setActiveDetailView("stock")}
-            whileHover={{ scale: 1.02, y: -2 }}
+            transition={{ duration: 0.3 }}
           >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">
-                تقرير الشهر الحالي
-              </h3>
-              <div className="text-4xl">📊</div>
-            </div>
-            {loadingStock ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-4 bg-gray-900/50 rounded-xl"
-                  >
-                    <Skeleton width="40%" height={20} />
-                    <Skeleton width="20%" height={20} />
-                  </div>
-                ))}
-              </div>
-            ) : stockError ? (
-              <div className="text-red-400 p-4 bg-red-900/20 rounded-xl border border-red-800">
-                {stockError}
-              </div>
-            ) : currentMonthItems && currentMonthItems.length > 0 ? (
-              <div className="space-y-3">
-                {currentMonthItems.slice(0, 3).map((item, idx) => {
-                  const opening = Math.floor(Number(item.opening || 0));
-                  const totalIncoming = Math.floor(
-                    Object.values(item.dailyIncoming || {}).reduce(
-                      (acc, val) => acc + Number(val || 0),
-                      0
-                    )
-                  );
-                  const totalDispensed = Math.floor(
-                    Object.values(item.dailyDispense || {}).reduce(
-                      (acc, val) => acc + Number(val || 0),
-                      0
-                    )
-                  );
-                  const currentStock = opening + totalIncoming - totalDispensed;
-
-                  return (
-                    <motion.div
-                      key={idx}
-                      className="flex items-center justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700/50"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.1 }}
-                    >
-                      <div className="text-white font-medium">{item.name}</div>
-                      <div className="text-fuchsia-400 font-bold">
-                        {currentStock}
+            {activeDetailView === "overview" && (
+              <div className="space-y-6">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  نظرة عامة على الصيدلية
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gray-700/50 rounded-xl p-6">
+                    <h4 className="text-xl font-bold text-white mb-4">
+                      معلومات الصيدلية
+                    </h4>
+                    <div className="space-y-3 text-gray-300">
+                      <div className="flex justify-between">
+                        <span>اسم الصيدلية:</span>
+                        <span className="font-bold text-white">
+                          {pharmacy.name}
+                        </span>
                       </div>
-                    </motion.div>
-                  );
-                })}
-                {currentMonthItems.length > 3 && (
-                  <div className="text-center py-4">
-                    <div className="text-fuchsia-400 font-bold">
-                      + {currentMonthItems.length - 3} صنف آخر
+                      <div className="flex justify-between">
+                        <span>تاريخ الإنشاء:</span>
+                        <span className="font-bold text-white">
+                          {pharmacy.createdAt
+                            ? new Date(pharmacy.createdAt).toLocaleDateString(
+                                "ar-EG"
+                              )
+                            : "غير محدد"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>عدد الصيادلة:</span>
+                        <span className="font-bold text-white">
+                          {pharmacists.length}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-gray-400 text-sm">انقر لعرض الكل</div>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <div className="text-6xl mb-4">📊</div>
-                <div className="text-gray-400 text-lg">
-                  لا يوجد بيانات لهذا الشهر.
+                  <div className="bg-gray-700/50 rounded-xl p-6">
+                    <h4 className="text-xl font-bold text-white mb-4">
+                      إحصائيات المخزون
+                    </h4>
+                    <div className="space-y-3 text-gray-300">
+                      <div className="flex justify-between">
+                        <span>إجمالي الأصناف:</span>
+                        <span className="font-bold text-white">
+                          {totalItems}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>إجمالي الوارد:</span>
+                        <span className="font-bold text-white">
+                          {totalIncoming}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>إجمالي المنصرف:</span>
+                        <span className="font-bold text-white">
+                          {totalDispensed}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>النواقص:</span>
+                        <span className="font-bold text-red-400">
+                          {totalShortages}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
-          </motion.div>
-        </div>
 
-        {/* Bottom Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Shortages Section */}
-          <motion.div
-            className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl p-8 border border-fuchsia-700/50 backdrop-blur-sm cursor-pointer"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            onClick={() => setActiveDetailView("shortages")}
-            whileHover={{ scale: 1.02, y: -2 }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-pink-400">
-                النواقص
-              </h3>
-              <div className="text-4xl">⚠️</div>
-            </div>
-            {loadingShortages ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-4 bg-gray-900/50 rounded-xl"
-                  >
-                    <Skeleton width="40%" height={20} />
-                    <Skeleton width="20%" height={20} />
+            {activeDetailView === "inventory" && (
+              <div className="space-y-6">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  مخزون الصيدلية
+                </h3>
+                {inventoryLoading ? (
+                  <div className="text-center py-8">
+                    <Spinner size={48} className="mb-4" />
+                    <p className="text-gray-400">جاري تحميل المخزون...</p>
                   </div>
-                ))}
-              </div>
-            ) : shortagesError ? (
-              <div className="text-red-400 p-4 bg-red-900/20 rounded-xl border border-red-800">
-                {shortagesError}
-              </div>
-            ) : shortages && shortages.length > 0 ? (
-              <div className="space-y-3">
-                {shortages.slice(0, 3).map((item, idx) => (
-                  <motion.div
-                    key={idx}
-                    className="flex items-center justify-between p-4 bg-red-900/20 rounded-xl border border-red-800/50"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.1 }}
-                  >
-                    <div className="text-white font-medium">{item.name}</div>
-                    <div className="text-red-400 font-bold">
-                      {item.quantity}
-                    </div>
-                  </motion.div>
-                ))}
-                {shortages.length > 3 && (
-                  <div className="text-center py-4">
-                    <div className="text-red-400 font-bold">
-                      + {shortages.length - 3} نقص آخر
-                    </div>
-                    <div className="text-gray-400 text-sm">انقر لعرض الكل</div>
+                ) : inventoryError ? (
+                  <div className="text-center py-8">
+                    <p className="text-red-400">{inventoryError}</p>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <div className="text-6xl mb-4">✅</div>
-                <div className="text-gray-400 text-lg">
-                  لا يوجد نواقص لهذا الشهر.
-                </div>
-              </div>
-            )}
-          </motion.div>
+                ) : items && items.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {items.map((item, index) => {
+                      const opening = Math.floor(Number(item.opening || 0));
+                      const totalIncoming = Math.floor(
+                        Object.values(item.dailyIncoming || {}).reduce(
+                          (acc, val) => acc + Number(val || 0),
+                          0
+                        )
+                      );
+                      const totalDispensed = Math.floor(
+                        Object.values(item.dailyDispense || {}).reduce(
+                          (acc, val) => acc + Number(val || 0),
+                          0
+                        )
+                      );
+                      const currentStock =
+                        opening + totalIncoming - totalDispensed;
 
-          {/* Attendance Section */}
-          <motion.div
-            className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl p-8 border border-fuchsia-700/50 backdrop-blur-sm cursor-pointer"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            onClick={() => setActiveDetailView("attendance")}
-            whileHover={{ scale: 1.02, y: -2 }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400">
-                الحضور اليومي ({today})
-              </h3>
-              <div className="text-4xl">👥</div>
-            </div>
-            {loadingAttendance ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-4 bg-gray-900/50 rounded-xl"
-                  >
-                    <Skeleton width="40%" height={20} />
-                    <Skeleton width="20%" height={20} />
-                  </div>
-                ))}
-              </div>
-            ) : attendanceError ? (
-              <div className="text-red-400 p-4 bg-red-900/20 rounded-xl border border-red-800">
-                {attendanceError}
-              </div>
-            ) : pharmacists.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-6xl mb-4">👥</div>
-                <div className="text-gray-400 text-lg">
-                  لا يوجد صيادلة معينون لهذه الصيدلية.
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {pharmacists.slice(0, 3).map((ph) => (
-                  <motion.div
-                    key={ph.id}
-                    className="flex items-center justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700/50"
-                  >
-                    <div className="text-white font-medium">{ph.name}</div>
-                    <div className="flex items-center gap-3">
-                      {isSenior ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={attendance[ph.id] === true}
-                            onChange={(e) =>
-                              handleAttendanceChange(ph.id, e.target.checked)
-                            }
-                            id={`attend-${ph.id}`}
-                            className="w-5 h-5 text-fuchsia-600 bg-gray-800 border-gray-600 rounded focus:ring-fuchsia-500 focus:ring-2"
-                          />
-                          <label
-                            htmlFor={`attend-${ph.id}`}
-                            className="text-gray-300"
-                          >
-                            {attendance[ph.id] === true ? "حاضر" : "غائب"}
-                          </label>
-                        </div>
-                      ) : attendance[ph.id] === true ? (
-                        <span className="text-green-400 font-bold flex items-center gap-2">
-                          <span className="w-3 h-3 bg-green-400 rounded-full"></span>
-                          حاضر
-                        </span>
-                      ) : attendance[ph.id] === false ? (
-                        <span className="text-red-400 font-bold flex items-center gap-2">
-                          <span className="w-3 h-3 bg-red-400 rounded-full"></span>
-                          غائب
-                        </span>
-                      ) : (
-                        <span className="text-gray-500 font-bold flex items-center gap-2">
-                          <span className="w-3 h-3 bg-gray-500 rounded-full"></span>
-                          غير محدد
-                        </span>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-                {pharmacists.length > 3 && (
-                  <div className="text-center py-4">
-                    <div className="text-green-400 font-bold">
-                      + {pharmacists.length - 3} صيدلي آخر
-                    </div>
-                    <div className="text-gray-400 text-sm">انقر لعرض الكل</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </motion.div>
-        </div>
-      </div>
-
-      {/* Detailed View Modal */}
-      {activeDetailView && (
-        <motion.div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={() => setActiveDetailView(null)}
-        >
-          <motion.div
-            className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl border border-fuchsia-700/50 backdrop-blur-sm max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-fuchsia-700/50">
-              <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">
-                {activeDetailView === "pharmacists" && "الصيادلة المعينون"}
-                {activeDetailView === "stock" && "تقرير الشهر الحالي"}
-                {activeDetailView === "shortages" && "النواقص"}
-                {activeDetailView === "attendance" &&
-                  `الحضور اليومي (${today})`}
-              </h2>
-              <motion.button
-                className="text-gray-400 hover:text-white text-2xl"
-                onClick={() => setActiveDetailView(null)}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-              >
-                ✕
-              </motion.button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6">
-              {activeDetailView === "pharmacists" && (
-                <div className="space-y-4">
-                  {pharmacists.map((ph) => (
-                    <motion.div
-                      key={ph.id}
-                      className={`p-6 rounded-xl border transition-all duration-300 ${
-                        ph.role === "senior"
-                          ? "bg-gradient-to-r from-purple-900/30 to-fuchsia-900/30 border-purple-700/50"
-                          : "bg-gray-900/50 border-gray-700/50"
-                      }`}
-                      whileHover={{ scale: 1.02, y: -2 }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="text-3xl">👨‍⚕️</div>
-                          <div>
-                            <div className="text-white font-bold text-xl">
-                              {ph.name}
-                            </div>
-                            <div className="text-gray-400 text-lg">
-                              {ph.username}
-                            </div>
-                            <div className="text-gray-500 text-sm">
-                              {ph.email}
-                            </div>
-                          </div>
-                        </div>
-                        <div
-                          className={`px-4 py-2 rounded-lg text-lg font-bold ${
-                            ph.role === "senior"
-                              ? "bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white"
-                              : "bg-gray-700 text-gray-300"
-                          }`}
+                      return (
+                        <motion.div
+                          key={index}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.1 }}
+                          className="bg-gray-700/50 rounded-xl p-4 border border-gray-600/50"
                         >
-                          {ph.role === "senior" ? "صيدلي خبير" : "صيدلي"}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
+                          <h5 className="font-bold text-white mb-2">
+                            {item.name || "صنف بدون اسم"}
+                          </h5>
+                          <div className="space-y-2 text-sm text-gray-300">
+                            <div className="flex justify-between">
+                              <span>الرصيد الافتتاحي:</span>
+                              <span className="font-bold">{opening}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>إجمالي الوارد:</span>
+                              <span className="font-bold text-green-400">
+                                {totalIncoming}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>إجمالي المنصرف:</span>
+                              <span className="font-bold text-red-400">
+                                {totalDispensed}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>المخزون الحالي:</span>
+                              <span
+                                className={`font-bold ${
+                                  currentStock > 0
+                                    ? "text-green-400"
+                                    : "text-red-400"
+                                }`}
+                              >
+                                {currentStock}
+                              </span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">لا توجد أصناف في المخزون</p>
+                  </div>
+                )}
+              </div>
+            )}
 
-              {activeDetailView === "stock" && (
-                <div className="space-y-4">
-                  {currentMonthItems.map((item, idx) => {
-                    const opening = Math.floor(Number(item.opening || 0));
-                    const totalIncoming = Math.floor(
-                      Object.values(item.dailyIncoming || {}).reduce(
-                        (acc, val) => acc + Number(val || 0),
-                        0
-                      )
-                    );
-                    const totalDispensed = Math.floor(
-                      Object.values(item.dailyDispense || {}).reduce(
-                        (acc, val) => acc + Number(val || 0),
-                        0
-                      )
-                    );
-                    const currentStock =
-                      opening + totalIncoming - totalDispensed;
-
-                    return (
+            {activeDetailView === "shortages" && (
+              <div className="space-y-6">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  النواقص والاحتياجات
+                </h3>
+                {loadingShortages ? (
+                  <div className="text-center py-8">
+                    <Spinner size={48} className="mb-4" />
+                    <p className="text-gray-400">جاري حساب النواقص...</p>
+                  </div>
+                ) : shortagesError ? (
+                  <div className="text-center py-8">
+                    <p className="text-red-400">{shortagesError}</p>
+                  </div>
+                ) : shortages && shortages.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {shortages.map((shortage, index) => (
                       <motion.div
-                        key={idx}
-                        className="p-6 bg-gray-900/50 rounded-xl border border-gray-700/50"
-                        initial={{ opacity: 0, y: 10 }}
+                        key={index}
+                        initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        whileHover={{ scale: 1.02 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="bg-red-900/30 border border-red-500/50 rounded-xl p-4"
                       >
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="text-white font-bold text-xl">
-                            {item.name}
+                        <h5 className="font-bold text-red-400 mb-2">
+                          {shortage.name}
+                        </h5>
+                        <div className="space-y-2 text-sm text-gray-300">
+                          <div className="flex justify-between">
+                            <span>المخزون الحالي:</span>
+                            <span className="font-bold text-red-400">
+                              {shortage.currentStock}
+                            </span>
                           </div>
-                          <div className="text-fuchsia-400 font-bold text-2xl">
-                            {currentStock}
+                          <div className="flex justify-between">
+                            <span>متوسط الاستهلاك:</span>
+                            <span className="font-bold text-yellow-400">
+                              {shortage.averageConsumption}
+                            </span>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div className="text-gray-400">
-                            <div>الرصيد الافتتاحي</div>
-                            <div className="text-white font-bold">
-                              {opening}
-                            </div>
+                          <div className="flex justify-between">
+                            <span>الكمية المطلوبة:</span>
+                            <span className="font-bold text-red-400">
+                              {shortage.shortage}
+                            </span>
                           </div>
-                          <div className="text-gray-400">
-                            <div>إجمالي الوارد</div>
-                            <div className="text-green-400 font-bold">
-                              {totalIncoming}
-                            </div>
-                          </div>
-                          <div className="text-gray-400">
-                            <div>إجمالي المنصرف</div>
-                            <div className="text-red-400 font-bold">
-                              {totalDispensed}
-                            </div>
+                          <div className="flex justify-between">
+                            <span>القيمة المطلوبة:</span>
+                            <span className="font-bold text-red-400">
+                              {shortage.shortage * shortage.unitPrice} ج.م
+                            </span>
                           </div>
                         </div>
                       </motion.div>
-                    );
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-green-400">لا توجد نواقص في المخزون</p>
+                  </div>
+                )}
+              </div>
+            )}
 
-              {activeDetailView === "shortages" && (
-                <div className="space-y-4">
-                  {shortages.map((item, idx) => (
-                    <motion.div
-                      key={idx}
-                      className="p-6 bg-red-900/20 rounded-xl border border-red-800/50"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.1 }}
-                      whileHover={{ scale: 1.02 }}
+            {activeDetailView === "pharmacists" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-white">
+                    الصيادلة المعينون
+                  </h3>
+                  {user && user.role === "lead" && (
+                    <motion.button
+                      className="bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-fuchsia-700 hover:to-purple-700 transition-all duration-300 font-bold"
+                      onClick={() => setAssigningSenior(true)}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="text-white font-bold text-xl">
-                          {item.name}
-                        </div>
-                        <div className="text-red-400 font-bold text-2xl">
-                          {Math.floor(item.quantity)}
-                        </div>
-                      </div>
-                      <div className="text-red-300 text-sm mt-2">
-                        يحتاج إلى إعادة طلب عاجل
-                      </div>
-                    </motion.div>
-                  ))}
+                      تعيين كبير الصيادلة
+                    </motion.button>
+                  )}
                 </div>
-              )}
 
-              {activeDetailView === "attendance" && (
-                <div className="space-y-4">
-                  {pharmacists.map((ph) => (
-                    <motion.div
-                      key={ph.id}
-                      className="p-6 bg-gray-900/50 rounded-xl border border-gray-700/50"
-                      whileHover={{ scale: 1.02 }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="text-3xl">👨‍⚕️</div>
-                          <div>
-                            <div className="text-white font-bold text-xl">
-                              {ph.name}
-                            </div>
-                            <div className="text-gray-400 text-lg">
-                              {ph.username}
+                {assigningSenior && (
+                  <motion.div
+                    className="bg-gray-700/50 rounded-xl p-6 border border-gray-600/50"
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <h4 className="text-xl font-bold text-white mb-4">
+                      تعيين كبير الصيادلة
+                    </h4>
+                    <form onSubmit={handleAssignSenior} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">
+                          اختر كبير الصيادلة
+                        </label>
+                        <select
+                          value={selectedSenior}
+                          onChange={(e) => setSelectedSenior(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                          required
+                        >
+                          <option value="">اختر صيدلي</option>
+                          {pharmacists.map((ph) => (
+                            <option key={ph.id} value={ph.id}>
+                              {ph.name} (
+                              {ph.role === "senior" ? "كبير" : "عادي"})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex gap-4">
+                        <motion.button
+                          type="submit"
+                          className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300 font-bold"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          تعيين
+                        </motion.button>
+                        <motion.button
+                          type="button"
+                          className="bg-gray-600 text-white px-6 py-3 rounded-xl hover:bg-gray-700 transition-all duration-300 font-bold"
+                          onClick={() => {
+                            setAssigningSenior(false);
+                            setSelectedSenior("");
+                          }}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          إلغاء
+                        </motion.button>
+                      </div>
+                    </form>
+                    {assignError && (
+                      <p className="text-red-400 mt-2">{assignError}</p>
+                    )}
+                    {assignSuccess && (
+                      <p className="text-green-400 mt-2">{assignSuccess}</p>
+                    )}
+                  </motion.div>
+                )}
+
+                {loadingPharmacists ? (
+                  <div className="text-center py-8">
+                    <Spinner size={48} className="mb-4" />
+                    <p className="text-gray-400">جاري تحميل الصيادلة...</p>
+                  </div>
+                ) : pharmacists.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {pharmacists.map((pharmacist, index) => (
+                      <motion.div
+                        key={pharmacist.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="bg-gray-700/50 rounded-xl p-6 border border-gray-600/50"
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="text-3xl">👨‍⚕️</div>
+                            <div>
+                              <h5 className="font-bold text-white text-lg">
+                                {pharmacist.name}
+                              </h5>
+                              <p className="text-gray-400 text-sm">
+                                {pharmacist.username}
+                              </p>
                             </div>
                           </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              pharmacist.role === "senior"
+                                ? "bg-yellow-600/30 text-yellow-400 border border-yellow-500/50"
+                                : "bg-blue-600/30 text-blue-400 border border-blue-500/50"
+                            }`}
+                          >
+                            {pharmacist.role === "senior"
+                              ? "كبير الصيادلة"
+                              : "صيدلي"}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-3">
-                          {isSenior ? (
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={attendance[ph.id] === true}
-                                onChange={(e) =>
-                                  handleAttendanceChange(
-                                    ph.id,
-                                    e.target.checked
-                                  )
-                                }
-                                id={`attend-modal-${ph.id}`}
-                                className="w-6 h-6 text-fuchsia-600 bg-gray-800 border-gray-600 rounded focus:ring-fuchsia-500 focus:ring-2"
-                              />
-                              <label
-                                htmlFor={`attend-modal-${ph.id}`}
-                                className="text-gray-300 text-lg"
-                              >
-                                {attendance[ph.id] === true ? "حاضر" : "غائب"}
-                              </label>
+                        <div className="space-y-2 text-sm text-gray-300">
+                          <div className="flex justify-between">
+                            <span>البريد الإلكتروني:</span>
+                            <span className="font-bold text-white">
+                              {pharmacist.email || "غير محدد"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>اسم المستخدم:</span>
+                            <span className="font-bold text-white">
+                              {pharmacist.username}
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">
+                      لا يوجد صيادلة معينون لهذه الصيدلية
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeDetailView === "attendance" && (
+              <div className="space-y-4">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  حضور الصيادلة - {new Date(today).toLocaleDateString("ar-EG")}
+                </h3>
+                {loadingAttendance ? (
+                  <div className="text-center py-8">
+                    <Spinner size={48} className="mb-4" />
+                    <p className="text-gray-400">جاري تحميل الحضور...</p>
+                  </div>
+                ) : attendanceError ? (
+                  <div className="text-center py-8">
+                    <p className="text-red-400">{attendanceError}</p>
+                  </div>
+                ) : pharmacists.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {pharmacists.map((ph) => (
+                      <motion.div
+                        key={ph.id}
+                        className="p-6 bg-gray-700/50 rounded-xl border border-gray-600/50"
+                        whileHover={{ scale: 1.02 }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="text-3xl">👨‍⚕️</div>
+                            <div>
+                              <div className="text-white font-bold text-xl">
+                                {ph.name}
+                              </div>
+                              <div className="text-gray-400 text-lg">
+                                {ph.username}
+                              </div>
                             </div>
-                          ) : attendance[ph.id] === true ? (
-                            <span className="text-green-400 font-bold flex items-center gap-2 text-lg">
-                              <span className="w-4 h-4 bg-green-400 rounded-full"></span>
-                              حاضر
-                            </span>
-                          ) : attendance[ph.id] === false ? (
-                            <span className="text-red-400 font-bold flex items-center gap-2 text-lg">
-                              <span className="w-4 h-4 bg-red-400 rounded-full"></span>
-                              غائب
-                            </span>
-                          ) : (
-                            <span className="text-gray-500 font-bold flex items-center gap-2 text-lg">
-                              <span className="w-4 h-4 bg-gray-500 rounded-full"></span>
-                              غير محدد
-                            </span>
-                          )}
+                          </div>
+                          <div className="text-right">
+                            {attendance[ph.id] === true ? (
+                              <span className="text-green-400 font-bold flex items-center gap-2 text-lg">
+                                <span className="w-4 h-4 bg-green-400 rounded-full"></span>
+                                حاضر
+                              </span>
+                            ) : attendance[ph.id] === false ? (
+                              <span className="text-red-400 font-bold flex items-center gap-2 text-lg">
+                                <span className="w-4 h-4 bg-red-400 rounded-full"></span>
+                                غائب
+                              </span>
+                            ) : (
+                              <span className="text-gray-500 font-bold flex items-center gap-2 text-lg">
+                                <span className="w-4 h-4 bg-gray-500 rounded-full"></span>
+                                غير محدد
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">
+                      لا يوجد صيادلة معينون لهذه الصيدلية
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         </motion.div>
-      )}
+      </motion.div>
     </div>
   );
 }

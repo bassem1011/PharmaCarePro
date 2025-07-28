@@ -44,13 +44,81 @@ export const validateItem = (item) => {
   return true;
 };
 
+// Create default pharmacy and migrate existing data
+export async function createDefaultPharmacyAndMigrate() {
+  try {
+    // Check if default pharmacy already exists
+    const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+    const existingDefault = pharmaciesSnap.docs.find(
+      (doc) => doc.data().name === "Test Pharmacy"
+    );
+
+    let defaultPharmacyId;
+    if (existingDefault) {
+      defaultPharmacyId = existingDefault.id;
+      console.log("Default pharmacy already exists:", defaultPharmacyId);
+    } else {
+      // Create default pharmacy
+      const defaultPharmacyRef = await addDoc(collection(db, "pharmacies"), {
+        name: "Test Pharmacy",
+        isDefault: true,
+        createdAt: new Date().toISOString(),
+      });
+      defaultPharmacyId = defaultPharmacyRef.id;
+      console.log("Created default pharmacy:", defaultPharmacyId);
+    }
+
+    // Migrate existing global monthlyStock data to default pharmacy
+    const globalMonthlyStockSnap = await getDocs(
+      collection(db, "monthlyStock")
+    );
+
+    if (globalMonthlyStockSnap.size > 0) {
+      console.log("Migrating global inventory data to default pharmacy...");
+
+      const batch = writeBatch(db);
+
+      globalMonthlyStockSnap.forEach((docSnap) => {
+        const monthKey = docSnap.id;
+        const data = docSnap.data();
+
+        // Move to pharmacy-specific location
+        const pharmacyMonthlyStockRef = doc(
+          db,
+          "pharmacies",
+          defaultPharmacyId,
+          "monthlyStock",
+          monthKey
+        );
+        batch.set(pharmacyMonthlyStockRef, data);
+
+        // Delete from global location
+        batch.delete(docSnap.ref);
+      });
+
+      await batch.commit();
+      console.log("Migration completed successfully");
+    }
+
+    return defaultPharmacyId;
+  } catch (error) {
+    console.error("Error creating default pharmacy and migrating data:", error);
+    throw error;
+  }
+}
+
 // Retry mechanism for failed saves
-export const saveWithRetry = async (monthKey, items, retries = 3) => {
+export const saveWithRetry = async (
+  pharmacyId,
+  monthKey,
+  items,
+  retries = 3
+) => {
   for (let i = 0; i < retries; i++) {
     try {
       // Validate all items before saving
       items.forEach(validateItem);
-      await saveMonthlyStock(monthKey, items);
+      await saveMonthlyStock(pharmacyId, monthKey, items);
       return;
     } catch (error) {
       if (i === retries - 1) throw error;
@@ -59,34 +127,38 @@ export const saveWithRetry = async (monthKey, items, retries = 3) => {
   }
 };
 
-// Save or update a month's stock (overwrites if exists)
-export async function saveMonthlyStock(monthKey, items) {
+// Save or update a month's stock for specific pharmacy (overwrites if exists)
+export async function saveMonthlyStock(pharmacyId, monthKey, items) {
   try {
-    await setDoc(doc(db, "monthlyStock", monthKey), { items });
+    await setDoc(doc(db, "pharmacies", pharmacyId, "monthlyStock", monthKey), {
+      items,
+    });
   } catch (error) {
     console.error("Error saving monthly stock:", error);
     throw error;
   }
 }
 
-// Get all months' stock
-export async function loadAllMonthlyStock() {
+// Get all months' stock for specific pharmacy
+export async function loadPharmacyMonthlyStock(pharmacyId) {
   try {
-    const snapshot = await getDocs(collection(db, "monthlyStock"));
+    const snapshot = await getDocs(
+      collection(db, "pharmacies", pharmacyId, "monthlyStock")
+    );
     const byMonth = {};
     snapshot.forEach((docSnap) => {
       byMonth[docSnap.id] = docSnap.data().items || [];
     });
     return byMonth;
   } catch (error) {
-    console.error("Error loading monthly stock:", error);
+    console.error("Error loading pharmacy monthly stock:", error);
     throw error;
   }
 }
 
-// Real-time listener for all months' stock
-export function subscribeToMonthlyStock(callback) {
-  const colRef = collection(db, "monthlyStock");
+// Real-time listener for pharmacy's monthly stock
+export function subscribeToPharmacyMonthlyStock(pharmacyId, callback) {
+  const colRef = collection(db, "pharmacies", pharmacyId, "monthlyStock");
   const unsubscribe = onSnapshot(colRef, (snapshot) => {
     const byMonth = {};
     snapshot.forEach((docSnap) => {
@@ -95,6 +167,31 @@ export function subscribeToMonthlyStock(callback) {
     callback(byMonth);
   });
   return unsubscribe;
+}
+
+// Legacy function for backward compatibility (redirects to default pharmacy)
+export async function loadAllMonthlyStock() {
+  try {
+    // Get default pharmacy
+    const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+    const defaultPharmacy = pharmaciesSnap.docs.find(
+      (doc) => doc.data().name === "Test Pharmacy"
+    );
+
+    if (defaultPharmacy) {
+      return await loadPharmacyMonthlyStock(defaultPharmacy.id);
+    }
+
+    return {};
+  } catch (error) {
+    console.error("Error loading all monthly stock:", error);
+    throw error;
+  }
+}
+
+// Legacy function for backward compatibility (redirects to default pharmacy)
+export function subscribeToMonthlyStock(callback) {
+  return subscribeToPharmacyMonthlyStock("default", callback);
 }
 
 // Add a custom page
@@ -124,7 +221,11 @@ export async function listPharmacies() {
 }
 
 export async function createPharmacy(name) {
-  const docRef = await addDoc(collection(db, "pharmacies"), { name });
+  const docRef = await addDoc(collection(db, "pharmacies"), {
+    name,
+    createdAt: new Date().toISOString(),
+    isDefault: false,
+  });
   return { id: docRef.id, name };
 }
 
@@ -154,9 +255,20 @@ export async function deletePharmacy(pharmacyId) {
       batch.update(doc(db, "users", userDoc.id), { assignedPharmacy: null });
     });
 
-    // 3. Delete all subcollections if they exist (monthlyStock, shortages, attendance)
-    // Note: Firestore doesn't automatically delete subcollections, so we need to handle this
-    // For now, we'll just delete the main document and update user assignments
+    // 3. Delete all subcollections (monthlyStock, attendance)
+    const monthlyStockSnap = await getDocs(
+      collection(db, "pharmacies", pharmacyId, "monthlyStock")
+    );
+    monthlyStockSnap.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+
+    const attendanceSnap = await getDocs(
+      collection(db, "pharmacies", pharmacyId, "attendance")
+    );
+    attendanceSnap.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
 
     await batch.commit();
     return true;
