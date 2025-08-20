@@ -11,6 +11,7 @@ import {
   updateDoc,
   deleteDoc,
   writeBatch,
+  onSnapshot,
 } from "firebase/firestore";
 import { db } from "../utils/firebase";
 import { useAuthState } from "react-firebase-hooks/auth";
@@ -52,9 +53,9 @@ export default function PharmacyDetailsPage() {
   const [editSuccess, setEditSuccess] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [activeDetailView, setActiveDetailView] = useState(null);
+  const [activeDetailView, setActiveDetailView] = useState("overview");
 
-  // Use pharmacy-specific inventory data
+  // Use pharmacy-specific inventory data with error handling
   const {
     items,
     monthlyConsumption,
@@ -62,26 +63,47 @@ export default function PharmacyDetailsPage() {
     error: inventoryError,
   } = useInventoryData(pharmacyId);
 
+  // Enhanced navigation handler
+  const handleGoBack = () => {
+    try {
+      console.log("Navigating back to pharmacies list");
+      navigate("/lead/pharmacies");
+    } catch (error) {
+      console.error("Navigation error:", error);
+      // Fallback navigation
+      window.location.href = "/lead/pharmacies";
+    }
+  };
+
   // Find current senior pharmacist
   const currentSenior = pharmacists.find((ph) => ph.role === "senior");
 
   // Fetch pharmacists assigned to this pharmacy
   useEffect(() => {
-    async function fetchPharmacists() {
-      setLoadingPharmacists(true);
-      try {
-        const usersSnap = await getDocs(collection(db, "users"));
-        const pharmacyPharmacists = usersSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((ph) => ph.assignedPharmacy === pharmacyId);
-        setPharmacists(pharmacyPharmacists);
-      } catch (err) {
-        console.error("Error fetching pharmacists:", err);
-      } finally {
-        setLoadingPharmacists(false);
-      }
+    if (!pharmacyId) return;
+
+    setLoadingPharmacists(true);
+
+    try {
+      const unsub = onSnapshot(
+        collection(db, "users"),
+        (usersSnap) => {
+          const pharmacyPharmacists = usersSnap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .filter((ph) => ph.assignedPharmacy === pharmacyId);
+          setPharmacists(pharmacyPharmacists);
+          setLoadingPharmacists(false);
+        },
+        (error) => {
+          console.error("Error loading pharmacists:", error);
+          setLoadingPharmacists(false);
+        }
+      );
+      return () => unsub();
+    } catch (error) {
+      console.error("Error setting up pharmacists listener:", error);
+      setLoadingPharmacists(false);
     }
-    fetchPharmacists();
   }, [pharmacyId]);
 
   // Assign senior pharmacist handler
@@ -179,29 +201,27 @@ export default function PharmacyDetailsPage() {
   };
 
   useEffect(() => {
-    async function fetchPharmacy() {
-      setLoading(true);
-      setError("");
-      try {
-        const docRef = doc(db, "pharmacies", pharmacyId);
-        const docSnap = await getDoc(docRef);
+    setLoading(true);
+    const unsub = onSnapshot(
+      doc(db, "pharmacies", pharmacyId),
+      (docSnap) => {
         if (docSnap.exists()) {
           setPharmacy({ id: docSnap.id, ...docSnap.data() });
+          setError("");
         } else {
+          setPharmacy(null);
           setError("لم يتم العثور على الصيدلية");
         }
-      } catch (err) {
-        setError("فشل تحميل بيانات الصيدلية");
-      } finally {
         setLoading(false);
-      }
-    }
-    fetchPharmacy();
+      },
+      () => setLoading(false)
+    );
+    return () => unsub();
   }, [pharmacyId]);
 
   // Calculate shortages based on pharmacy-specific data
   useEffect(() => {
-    if (!items || items.length === 0) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       setShortages([]);
       setLoadingShortages(false);
       return;
@@ -211,7 +231,7 @@ export default function PharmacyDetailsPage() {
     try {
       const shortagesList = items
         .filter((item) => {
-          if (!item.name) return false;
+          if (!item || !item.name) return false;
 
           const opening = Math.floor(Number(item.opening || 0));
           const totalIncoming = Math.floor(
@@ -229,7 +249,8 @@ export default function PharmacyDetailsPage() {
           const currentStock = opening + totalIncoming - totalDispensed;
 
           // Get average consumption from monthlyConsumption
-          const consumption = monthlyConsumption[item.name];
+          const consumption =
+            monthlyConsumption && monthlyConsumption[item.name];
           const averageConsumption = consumption ? consumption.average : 10;
 
           return currentStock <= averageConsumption;
@@ -250,7 +271,8 @@ export default function PharmacyDetailsPage() {
           );
           const currentStock = opening + totalIncoming - totalDispensed;
 
-          const consumption = monthlyConsumption[item.name];
+          const consumption =
+            monthlyConsumption && monthlyConsumption[item.name];
           const averageConsumption = consumption ? consumption.average : 10;
 
           return {
@@ -265,6 +287,7 @@ export default function PharmacyDetailsPage() {
 
       setShortages(shortagesList);
     } catch (err) {
+      console.error("Error calculating shortages:", err);
       setShortagesError("فشل حساب النواقص");
     } finally {
       setLoadingShortages(false);
@@ -273,24 +296,30 @@ export default function PharmacyDetailsPage() {
 
   // Fetch today's attendance
   useEffect(() => {
-    async function fetchAttendance() {
-      setLoadingAttendance(true);
-      setAttendanceError("");
-      try {
-        const docRef = doc(db, "pharmacies", pharmacyId, "attendance", today);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setAttendance(docSnap.data() || {});
-        } else {
-          setAttendance({});
+    if (!pharmacyId) return;
+
+    setLoadingAttendance(true);
+    setAttendanceError("");
+
+    try {
+      const unsub = onSnapshot(
+        doc(db, "pharmacies", pharmacyId, "attendance", today),
+        (docSnap) => {
+          setAttendance(docSnap.exists() ? docSnap.data() : {});
+          setLoadingAttendance(false);
+        },
+        (error) => {
+          console.error("Error loading attendance:", error);
+          setAttendanceError("فشل تحميل بيانات الحضور");
+          setLoadingAttendance(false);
         }
-      } catch (err) {
-        setAttendanceError("فشل تحميل الحضور");
-      } finally {
-        setLoadingAttendance(false);
-      }
+      );
+      return () => unsub();
+    } catch (error) {
+      console.error("Error setting up attendance listener:", error);
+      setAttendanceError("فشل تحميل بيانات الحضور");
+      setLoadingAttendance(false);
     }
-    fetchAttendance();
   }, [pharmacyId, today]);
 
   if (loading)
@@ -310,34 +339,81 @@ export default function PharmacyDetailsPage() {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-red-400 text-xl mb-4">⚠️</div>
-          <div className="text-red-400 text-lg">{error}</div>
+          <div className="text-red-400 text-lg mb-4">{error}</div>
+          <motion.button
+            className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white px-6 py-3 rounded-xl hover:from-purple-700 hover:to-fuchsia-700 transition-all duration-300 font-bold"
+            onClick={handleGoBack}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            ← العودة للصيدليات
+          </motion.button>
         </div>
       </div>
     );
 
-  if (!pharmacy) return null;
+  if (!pharmacy) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-xl mb-4">🏥</div>
+          <div className="text-red-400 text-lg mb-4">
+            لم يتم العثور على الصيدلية
+          </div>
+          <motion.button
+            className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white px-6 py-3 rounded-xl hover:from-purple-700 hover:to-fuchsia-700 transition-all duration-300 font-bold"
+            onClick={handleGoBack}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            ← العودة للصيدليات
+          </motion.button>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle inventory loading errors
+  if (inventoryError) {
+    console.error("Inventory loading error:", inventoryError);
+  }
+
+  // Show loading state while inventory is loading
+  if (inventoryLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Spinner size={56} className="mb-4" />
+          <div className="text-white text-lg">جاري تحميل بيانات المخزون...</div>
+        </div>
+      </div>
+    );
+  }
 
   // Calculate statistics for this pharmacy
-  const totalItems = items ? items.length : 0;
-  const totalDispensed = items
-    ? items.reduce((sum, item) => {
-        const itemTotal = Object.values(item.dailyDispense || {}).reduce(
-          (acc, val) => acc + Number(val || 0),
-          0
-        );
-        return sum + itemTotal;
-      }, 0)
-    : 0;
-  const totalIncoming = items
-    ? items.reduce((sum, item) => {
-        const itemTotal = Object.values(item.dailyIncoming || {}).reduce(
-          (acc, val) => acc + Number(val || 0),
-          0
-        );
-        return sum + itemTotal;
-      }, 0)
-    : 0;
-  const totalShortages = shortages ? shortages.length : 0;
+  const totalItems = items && Array.isArray(items) ? items.length : 0;
+  const totalDispensed =
+    items && Array.isArray(items)
+      ? items.reduce((sum, item) => {
+          const itemTotal = Object.values(item.dailyDispense || {}).reduce(
+            (acc, val) => acc + Number(val || 0),
+            0
+          );
+          return sum + itemTotal;
+        }, 0)
+      : 0;
+  const totalIncoming =
+    items && Array.isArray(items)
+      ? items.reduce((sum, item) => {
+          const itemTotal = Object.values(item.dailyIncoming || {}).reduce(
+            (acc, val) => acc + Number(val || 0),
+            0
+          );
+          return sum + itemTotal;
+        }, 0)
+      : 0;
+  const totalShortages =
+    shortages && Array.isArray(shortages) ? shortages.length : 0;
 
   return (
     <div className="min-h-screen bg-gray-900 p-6">
@@ -434,7 +510,7 @@ export default function PharmacyDetailsPage() {
             </div>
             <motion.button
               className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white px-6 py-3 rounded-xl hover:from-purple-700 hover:via-fuchsia-700 hover:to-pink-700 transition-all duration-300 font-bold shadow-2xl hover:shadow-purple-500/25"
-              onClick={() => navigate("/lead/pharmacies")}
+              onClick={handleGoBack}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >

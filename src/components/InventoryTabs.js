@@ -187,16 +187,44 @@ export function useInventoryData(pharmacyId = null) {
   useEffect(() => {
     setLoading(true);
 
-    // Use pharmacy-specific subscription if pharmacyId is provided
-    const unsubscribe = pharmacyId
-      ? subscribeToPharmacyMonthlyStock(pharmacyId, (byMonth) => {
-          setItemsByMonth(byMonth);
-          setLoading(false);
-        })
-      : subscribeToPharmacyMonthlyStock("default", (byMonth) => {
-          setItemsByMonth(byMonth);
-          setLoading(false);
-        });
+    // Determine the actual pharmacy ID to use
+    let actualPharmacyId = pharmacyId;
+
+    if (!actualPharmacyId) {
+      // Check if user is a regular/senior pharmacist with assigned pharmacy
+      const pharmaUser = localStorage.getItem("pharmaUser");
+      if (pharmaUser) {
+        try {
+          const parsedUser = JSON.parse(pharmaUser);
+          if (parsedUser && parsedUser.assignedPharmacy) {
+            actualPharmacyId = parsedUser.assignedPharmacy;
+            console.log("Using assigned pharmacy ID:", actualPharmacyId);
+          }
+        } catch (error) {
+          console.error("Error parsing pharmaUser:", error);
+        }
+      }
+
+      // If still no pharmacy ID, use "default" (for lead users)
+      if (!actualPharmacyId) {
+        actualPharmacyId = "default";
+      }
+    }
+
+    console.log("Subscribing to pharmacy monthly stock:", actualPharmacyId);
+
+    const unsubscribe = subscribeToPharmacyMonthlyStock(
+      actualPharmacyId,
+      (byMonth) => {
+        console.log(
+          "Received inventory data for pharmacy:",
+          actualPharmacyId,
+          byMonth
+        );
+        setItemsByMonth(byMonth);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [pharmacyId]);
@@ -207,7 +235,31 @@ export function useInventoryData(pharmacyId = null) {
     // Save immediately when items are added/modified
     const saveData = async () => {
       try {
-        const currentPharmacyId = pharmacyId || "default";
+        // Determine the actual pharmacy ID to use (same logic as subscription)
+        let currentPharmacyId = pharmacyId;
+
+        if (!currentPharmacyId) {
+          // Check if user is a regular/senior pharmacist with assigned pharmacy
+          const pharmaUser = localStorage.getItem("pharmaUser");
+          if (pharmaUser) {
+            try {
+              const parsedUser = JSON.parse(pharmaUser);
+              if (parsedUser && parsedUser.assignedPharmacy) {
+                currentPharmacyId = parsedUser.assignedPharmacy;
+              }
+            } catch (error) {
+              console.error("Error parsing pharmaUser for save:", error);
+            }
+          }
+
+          // If still no pharmacy ID, use "default" (for lead users)
+          if (!currentPharmacyId) {
+            currentPharmacyId = "default";
+          }
+        }
+
+        console.log("Saving data to pharmacy:", currentPharmacyId);
+
         const savePromises = Object.entries(itemsByMonth).map(
           ([monthKey, items]) => {
             if (items && items.length > 0) {
@@ -220,7 +272,7 @@ export function useInventoryData(pharmacyId = null) {
         );
 
         await Promise.all(savePromises);
-        // Data saved successfully to Firebase
+        console.log("Data saved successfully to Firebase");
       } catch (err) {
         setError("فشل حفظ البيانات على الخادم");
         console.error("Save error:", err);
@@ -426,7 +478,31 @@ export function useInventoryData(pharmacyId = null) {
 
       // Save immediately when adding new item
       setTimeout(() => {
-        const currentPharmacyId = pharmacyId || "default";
+        // Determine the actual pharmacy ID to use (same logic as subscription)
+        let currentPharmacyId = pharmacyId;
+
+        if (!currentPharmacyId) {
+          // Check if user is a regular/senior pharmacist with assigned pharmacy
+          const pharmaUser = localStorage.getItem("pharmaUser");
+          if (pharmaUser) {
+            try {
+              const parsedUser = JSON.parse(pharmaUser);
+              if (parsedUser && parsedUser.assignedPharmacy) {
+                currentPharmacyId = parsedUser.assignedPharmacy;
+              }
+            } catch (error) {
+              console.error("Error parsing pharmaUser for add item:", error);
+            }
+          }
+
+          // If still no pharmacy ID, use "default" (for lead users)
+          if (!currentPharmacyId) {
+            currentPharmacyId = "default";
+          }
+        }
+
+        console.log("Adding item to pharmacy:", currentPharmacyId);
+
         saveWithRetry(
           currentPharmacyId,
           currentMonthKey,

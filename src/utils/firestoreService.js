@@ -1,17 +1,18 @@
 import {
   collection,
-  addDoc,
-  getDocs,
-  deleteDoc,
   doc,
-  updateDoc,
-  setDoc,
   getDoc,
-  onSnapshot,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
   writeBatch,
+  onSnapshot,
   query,
   where,
+  setDoc,
 } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 
 // Data validation function
@@ -45,10 +46,24 @@ export const validateItem = (item) => {
 };
 
 // Create default pharmacy and migrate existing data
-export async function createDefaultPharmacyAndMigrate() {
+export async function createDefaultPharmacyAndMigrate(ownerId = null) {
   try {
-    // Check if default pharmacy already exists
-    const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+    // Get current user if ownerId not provided
+    if (!ownerId) {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("User not authenticated");
+      }
+      ownerId = currentUser.uid;
+    }
+
+    // Check if default pharmacy already exists for this owner
+    const q = query(
+      collection(db, "pharmacies"),
+      where("ownerId", "==", ownerId)
+    );
+    const pharmaciesSnap = await getDocs(q);
     const existingDefault = pharmaciesSnap.docs.find(
       (doc) => doc.data().name === "Test Pharmacy"
     );
@@ -56,25 +71,31 @@ export async function createDefaultPharmacyAndMigrate() {
     let defaultPharmacyId;
     if (existingDefault) {
       defaultPharmacyId = existingDefault.id;
-      console.log("Default pharmacy already exists:", defaultPharmacyId);
+      console.log(
+        "Default pharmacy already exists for owner:",
+        defaultPharmacyId
+      );
     } else {
-      // Create default pharmacy
+      // Create default pharmacy for this owner
       const defaultPharmacyRef = await addDoc(collection(db, "pharmacies"), {
         name: "Test Pharmacy",
+        ownerId, // Add owner ID for multi-tenancy
         isDefault: true,
         createdAt: new Date().toISOString(),
       });
       defaultPharmacyId = defaultPharmacyRef.id;
-      console.log("Created default pharmacy:", defaultPharmacyId);
+      console.log("Created default pharmacy for owner:", defaultPharmacyId);
     }
 
-    // Migrate existing global monthlyStock data to default pharmacy
+    // Migrate existing global monthlyStock data to default pharmacy (only for this owner)
     const globalMonthlyStockSnap = await getDocs(
       collection(db, "monthlyStock")
     );
 
     if (globalMonthlyStockSnap.size > 0) {
-      console.log("Migrating global inventory data to default pharmacy...");
+      console.log(
+        "Migrating global inventory data to default pharmacy for owner..."
+      );
 
       const batch = writeBatch(db);
 
@@ -97,7 +118,7 @@ export async function createDefaultPharmacyAndMigrate() {
       });
 
       await batch.commit();
-      console.log("Migration completed successfully");
+      console.log("Migration completed successfully for owner");
     }
 
     return defaultPharmacyId;
@@ -195,14 +216,139 @@ export function subscribeToMonthlyStock(callback) {
 }
 
 // Add a custom page
-export async function addCustomPage(data) {
-  return await addDoc(collection(db, "customPages"), data);
+export async function addCustomPage(data, ownerId = null) {
+  // Get current user if ownerId not provided
+  if (!ownerId) {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      // Check if user is logged in via localStorage (regular/senior pharmacist)
+      const pharmaUser = localStorage.getItem("pharmaUser");
+      if (pharmaUser) {
+        try {
+          const parsedUser = JSON.parse(pharmaUser);
+          if (parsedUser && parsedUser.username && parsedUser.role) {
+            // For regular/senior pharmacists, try to get their assigned pharmacy's owner
+            if (parsedUser.assignedPharmacy) {
+              try {
+                const pharmacyDocRef = doc(
+                  db,
+                  "pharmacies",
+                  parsedUser.assignedPharmacy
+                );
+                const pharmacySnap = await getDoc(pharmacyDocRef);
+                if (pharmacySnap.exists()) {
+                  ownerId = pharmacySnap.data().ownerId;
+                } else {
+                  // If pharmacy doesn't exist, use a fallback approach
+                  console.warn("Pharmacy not found, using fallback owner ID");
+                  ownerId = `pharmacy_${parsedUser.assignedPharmacy}`;
+                }
+              } catch (error) {
+                console.warn(
+                  "Error getting pharmacy owner ID, using fallback:",
+                  error
+                );
+                ownerId = `pharmacy_${parsedUser.assignedPharmacy}`;
+              }
+            } else {
+              // If no assigned pharmacy, use username as owner ID
+              ownerId = `user_${parsedUser.username}`;
+            }
+          } else {
+            throw new Error("User not authenticated");
+          }
+        } catch (error) {
+          console.error(
+            "Error getting pharmacy owner ID for addCustomPage:",
+            error
+          );
+          throw new Error("Unable to determine pharmacy owner");
+        }
+      } else {
+        throw new Error("User not authenticated");
+      }
+    } else {
+      ownerId = currentUser.uid;
+    }
+  }
+
+  return await addDoc(collection(db, "customPages"), {
+    ...data,
+    ownerId, // Add owner ID for multi-tenancy
+  });
 }
 
 // Get all custom pages
-export async function getCustomPages() {
-  const snapshot = await getDocs(collection(db, "customPages"));
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+export async function getCustomPages(ownerId = null) {
+  // Get current user if ownerId not provided
+  if (!ownerId) {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      // Check if user is logged in via localStorage (regular/senior pharmacist)
+      const pharmaUser = localStorage.getItem("pharmaUser");
+      if (pharmaUser) {
+        try {
+          const parsedUser = JSON.parse(pharmaUser);
+          if (parsedUser && parsedUser.username && parsedUser.role) {
+            // For regular/senior pharmacists, try to get their assigned pharmacy's owner
+            if (parsedUser.assignedPharmacy) {
+              try {
+                const pharmacyDocRef = doc(
+                  db,
+                  "pharmacies",
+                  parsedUser.assignedPharmacy
+                );
+                const pharmacySnap = await getDoc(pharmacyDocRef);
+                if (pharmacySnap.exists()) {
+                  ownerId = pharmacySnap.data().ownerId;
+                } else {
+                  // If pharmacy doesn't exist, use fallback approach
+                  ownerId = `pharmacy_${parsedUser.assignedPharmacy}`;
+                }
+              } catch (error) {
+                console.warn(
+                  "Error getting pharmacy owner ID, using fallback:",
+                  error
+                );
+                ownerId = `pharmacy_${parsedUser.assignedPharmacy}`;
+              }
+            } else {
+              // If no assigned pharmacy, use username as owner ID
+              ownerId = `user_${parsedUser.username}`;
+            }
+          } else {
+            throw new Error("User not authenticated");
+          }
+        } catch (error) {
+          console.error("Error getting pharmacy owner ID:", error);
+          // For now, return empty array instead of throwing error
+          return [];
+        }
+      } else {
+        // For unauthenticated users, return empty array
+        return [];
+      }
+    } else {
+      ownerId = currentUser.uid;
+    }
+  }
+
+  // If we have an ownerId, filter by it
+  if (ownerId) {
+    const q = query(
+      collection(db, "customPages"),
+      where("ownerId", "==", ownerId)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } else {
+    // If no ownerId, return empty array
+    return [];
+  }
 }
 
 // Delete a custom page by ID
@@ -215,18 +361,43 @@ export async function updateCustomPage(id, newData) {
   return await updateDoc(doc(db, "customPages", id), newData);
 }
 
-export async function listPharmacies() {
-  const snapshot = await getDocs(collection(db, "pharmacies"));
+export async function listPharmacies(ownerId = null) {
+  // Get current user if ownerId not provided
+  if (!ownerId) {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error("User not authenticated");
+    }
+    ownerId = currentUser.uid;
+  }
+
+  const q = query(
+    collection(db, "pharmacies"),
+    where("ownerId", "==", ownerId)
+  );
+  const snapshot = await getDocs(q);
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-export async function createPharmacy(name) {
+export async function createPharmacy(name, ownerId = null) {
+  // Get current user if ownerId not provided
+  if (!ownerId) {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error("User not authenticated");
+    }
+    ownerId = currentUser.uid;
+  }
+
   const docRef = await addDoc(collection(db, "pharmacies"), {
     name,
+    ownerId, // Add owner ID for multi-tenancy
     createdAt: new Date().toISOString(),
     isDefault: false,
   });
-  return { id: docRef.id, name };
+  return { id: docRef.id, name, ownerId };
 }
 
 export async function getPharmacyNameById(id) {

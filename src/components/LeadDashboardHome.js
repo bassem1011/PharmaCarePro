@@ -1,27 +1,24 @@
 import React, { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../utils/firebase";
-import { Bar } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-} from "chart.js";
 import { useNavigate } from "react-router-dom";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend
-);
+import { motion } from "framer-motion";
+import { getAuth } from "firebase/auth";
+import { useAuthState } from "react-firebase-hooks/auth";
+import {
+  Store,
+  Users,
+  Calendar,
+  BarChart3,
+  Settings,
+  ArrowRight,
+  TrendingUp,
+  UserCheck,
+  UserX,
+  Crown,
+} from "lucide-react";
 
 function getTodayDateString() {
   const d = new Date();
@@ -37,33 +34,53 @@ export default function LeadDashboardHome() {
     absent: 0,
     loading: true,
   });
-  const [trend, setTrend] = useState({
-    labels: [],
-    present: [],
-    absent: [],
-    loading: true,
-  });
   const navigate = useNavigate();
+  const auth = getAuth();
+  const [user] = useAuthState(auth);
 
   useEffect(() => {
     async function fetchStats() {
       try {
+        if (!user) {
+          setStats({
+            pharmacies: 0,
+            pharmacists: 0,
+            seniors: 0,
+            present: 0,
+            absent: 0,
+            loading: false,
+          });
+          return;
+        }
+
         let pharmacies = 0,
           pharmacists = 0,
           seniors = 0;
-        // Pharmacies
-        const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+
+        // Get current user's pharmacies (multi-tenant)
+        const pharmaciesQuery = query(
+          collection(db, "pharmacies"),
+          where("ownerId", "==", user.uid)
+        );
+        const pharmaciesSnap = await getDocs(pharmaciesQuery);
         pharmacies = pharmaciesSnap.size;
-        // Pharmacists
-        const usersSnap = await getDocs(collection(db, "users"));
+
+        // Get current user's pharmacists (multi-tenant)
+        const usersQuery = query(
+          collection(db, "users"),
+          where("ownerId", "==", user.uid)
+        );
+        const usersSnap = await getDocs(usersQuery);
         pharmacists = usersSnap.size;
         seniors = usersSnap.docs.filter(
           (doc) => doc.data().role === "senior"
         ).length;
-        // Attendance (today, all pharmacies)
+
+        // Attendance (today, only user's pharmacies)
         const today = getTodayDateString();
         let presentCount = 0,
           absentCount = 0;
+
         for (const pharmacyDoc of pharmaciesSnap.docs) {
           try {
             const attSnap = await getDocs(
@@ -84,6 +101,7 @@ export default function LeadDashboardHome() {
             );
           }
         }
+
         setStats({
           pharmacies,
           pharmacists,
@@ -105,97 +123,7 @@ export default function LeadDashboardHome() {
       }
     }
     fetchStats();
-  }, []);
-
-  useEffect(() => {
-    async function fetchTrend() {
-      try {
-        const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
-        const pharmacies = pharmaciesSnap.docs.map((doc) => doc.id);
-
-        // Use July 2025 specifically
-        const currentYear = 2025;
-        const currentMonth = 7; // July
-
-        // Get number of days in July (31 days)
-        const daysInMonth = 31;
-
-        // Create array of day numbers (1-31)
-        const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-        let presentArr = [],
-          absentArr = [];
-
-        for (const day of days) {
-          let present = 0,
-            absent = 0;
-          for (const pid of pharmacies) {
-            try {
-              const attDoc = await getDocs(
-                collection(db, "pharmacies", pid, "attendance")
-              );
-              // Create date string for this day
-              const dateString = `${currentYear}-${String(
-                currentMonth
-              ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const todayDoc = attDoc.docs.find((d) => d.id === dateString);
-              if (todayDoc) {
-                const att = todayDoc.data();
-                Object.values(att).forEach((val) => {
-                  if (val === true) present++;
-                  else if (val === false) absent++;
-                });
-              }
-            } catch (error) {
-              console.warn(
-                `Error fetching attendance for pharmacy ${pid} on day ${day}:`,
-                error
-              );
-            }
-          }
-          presentArr.push(present);
-          absentArr.push(absent);
-        }
-        setTrend({
-          labels: days,
-          present: presentArr,
-          absent: absentArr,
-          loading: false,
-        });
-      } catch (error) {
-        console.error("Error fetching trend:", error);
-        setTrend({
-          labels: [],
-          present: [],
-          absent: [],
-          loading: false,
-        });
-      }
-    }
-    fetchTrend();
-  }, []);
-
-  // Function to get day name from day number for July 2025
-  const getDayName = (dayNumber) => {
-    const currentYear = 2025;
-    const currentMonth = 7; // July
-
-    // Create date for this day in July 2025
-    const date = new Date(currentYear, currentMonth - 1, dayNumber);
-
-    // Get day name in English (Gregorian)
-    const dayNames = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-    ];
-
-    return dayNames[date.getDay()];
-  };
+  }, [user]);
 
   if (stats.loading)
     return (
@@ -216,192 +144,225 @@ export default function LeadDashboardHome() {
         <p className="text-gray-300">نظرة عامة على جميع الصيدليات والصيادلة</p>
       </div>
 
-      {/* Stats Cards */}
+      {/* Enhanced Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {/* Pharmacies Card */}
+        <motion.div
+          className="relative overflow-hidden bg-gradient-to-br from-cyan-600 to-cyan-700 rounded-2xl shadow-2xl border border-cyan-500/30 group"
+          whileHover={{ scale: 1.05, y: -5 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="absolute top-0 right-0 w-20 h-20 bg-cyan-400/10 rounded-full -translate-y-10 translate-x-10"></div>
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-cyan-400/5 rounded-full translate-y-8 -translate-x-8"></div>
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                <Store size={24} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-cyan-200/80 font-medium">
+                  إجمالي
+                </div>
+                <div className="text-xs text-cyan-200/60">الصيدليات</div>
+              </div>
+            </div>
+            <div className="text-3xl font-black text-white mb-2 group-hover:text-cyan-100 transition-colors">
+              {stats.pharmacies}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-cyan-300 rounded-full animate-pulse"></div>
+              <div className="text-xs text-cyan-200/80">نشط</div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Pharmacists Card */}
+        <motion.div
+          className="relative overflow-hidden bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-2xl shadow-2xl border border-emerald-500/30 group"
+          whileHover={{ scale: 1.05, y: -5 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-400/10 rounded-full -translate-y-10 translate-x-10"></div>
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-emerald-400/5 rounded-full translate-y-8 -translate-x-8"></div>
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                <Users size={24} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-emerald-200/80 font-medium">
+                  إجمالي
+                </div>
+                <div className="text-xs text-emerald-200/60">الصيادلة</div>
+              </div>
+            </div>
+            <div className="text-3xl font-black text-white mb-2 group-hover:text-emerald-100 transition-colors">
+              {stats.pharmacists}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
+              <div className="text-xs text-emerald-200/80">مسجل</div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Senior Pharmacists Card */}
+        <motion.div
+          className="relative overflow-hidden bg-gradient-to-br from-amber-600 to-amber-700 rounded-2xl shadow-2xl border border-amber-500/30 group"
+          whileHover={{ scale: 1.05, y: -5 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-400/10 rounded-full -translate-y-10 translate-x-10"></div>
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-amber-400/5 rounded-full translate-y-8 -translate-x-8"></div>
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                <Crown size={24} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-amber-200/80 font-medium">
+                  كبار
+                </div>
+                <div className="text-xs text-amber-200/60">الصيادلة</div>
+              </div>
+            </div>
+            <div className="text-3xl font-black text-white mb-2 group-hover:text-amber-100 transition-colors">
+              {stats.seniors}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-amber-300 rounded-full animate-pulse"></div>
+              <div className="text-xs text-amber-200/80">خبراء</div>
+            </div>
+          </div>
+        </motion.div>
+
         {/* Today's Attendance Card */}
-        <div className="bg-gradient-to-br from-fuchsia-900/50 to-purple-900/50 rounded-lg shadow-lg p-6 border border-fuchsia-600">
-          <div className="text-center">
-            <div className="text-4xl mb-2">📅</div>
-            <div className="text-lg font-bold text-fuchsia-300 mb-1">
-              {new Date().toLocaleDateString("en-US", { weekday: "long" })}
+        <motion.div
+          className="relative overflow-hidden bg-gradient-to-br from-rose-600 to-rose-700 rounded-2xl shadow-2xl border border-rose-500/30 group"
+          whileHover={{ scale: 1.05, y: -5 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="absolute top-0 right-0 w-20 h-20 bg-rose-400/10 rounded-full -translate-y-10 translate-x-10"></div>
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-rose-400/5 rounded-full translate-y-8 -translate-x-8"></div>
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                <Calendar size={24} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-rose-200/80 font-medium">
+                  الحضور
+                </div>
+                <div className="text-xs text-rose-200/60">اليوم</div>
+              </div>
             </div>
-            <div className="text-sm text-gray-300 mb-3">
-              {new Date().toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </div>
-            <div className="text-2xl font-bold text-white mb-1">
+            <div className="text-3xl font-black text-white mb-2 group-hover:text-rose-100 transition-colors">
               {stats.present + stats.absent > 0
                 ? `${stats.present}/${stats.present + stats.absent}`
                 : "0/0"}
             </div>
-            <div className="text-xs text-gray-400">الحضور اليوم</div>
-          </div>
-        </div>
-
-        <div className="bg-gray-950 rounded-lg shadow-lg p-6 border border-fuchsia-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-fuchsia-400 mb-2">
-                {stats.pharmacies}
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-rose-300 rounded-full animate-pulse"></div>
+              <div className="text-xs text-rose-200/80">
+                {stats.present + stats.absent > 0
+                  ? `${Math.round(
+                      (stats.present / (stats.present + stats.absent)) * 100
+                    )}%`
+                  : "0%"}
               </div>
-              <div className="text-gray-300">إجمالي الصيدليات</div>
             </div>
-            <div className="text-4xl">🏥</div>
           </div>
-        </div>
-        <div className="bg-gray-950 rounded-lg shadow-lg p-6 border border-fuchsia-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-fuchsia-400 mb-2">
-                {stats.pharmacists}
-              </div>
-              <div className="text-gray-300">إجمالي الصيادلة</div>
-            </div>
-            <div className="text-4xl">👨‍⚕️</div>
-          </div>
-        </div>
-        <div className="bg-gray-950 rounded-lg shadow-lg p-6 border border-fuchsia-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-fuchsia-400 mb-2">
-                {stats.seniors}
-              </div>
-              <div className="text-gray-300">كبار الصيادلة</div>
-            </div>
-            <div className="text-4xl">👨‍⚕️</div>
-          </div>
-        </div>
+        </motion.div>
       </div>
 
-      {/* Attendance Trends Chart */}
-      <div className="bg-gray-950 rounded-lg shadow-lg p-6 border border-fuchsia-700 mb-8">
-        <h3 className="text-xl font-semibold mb-6 text-fuchsia-400">
-          اتجاه الحضور (July 2025)
-        </h3>
-        {trend.loading ? (
-          <div className="text-center py-8 flex flex-col items-center justify-center">
-            <Spinner size={56} className="mb-4" />
-            <Skeleton width={200} height={24} className="mb-2" />
-            <Skeleton width={300} height={18} />
+      {/* Enhanced Quick Actions */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <motion.button
+          className="group relative overflow-hidden bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-purple-500/30"
+          onClick={() => navigate("/lead/pharmacies")}
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-300"></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <Store size={20} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold">إدارة الصيدليات</div>
+                <div className="text-sm text-purple-200/80">
+                  عرض وإدارة جميع الصيدليات
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <ArrowRight
+                size={20}
+                className="text-white/80 group-hover:translate-x-1 transition-transform"
+              />
+              <div className="text-sm text-purple-200/60">انقر للعرض</div>
+            </div>
           </div>
-        ) : trend.labels.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-4">📊</div>
-            <p className="text-gray-400">لا توجد بيانات متاحة للعرض</p>
-          </div>
-        ) : (
-          <div className="h-80">
-            <Bar
-              data={{
-                labels: trend.labels.map((day) => `${day} ${getDayName(day)}`),
-                datasets: [
-                  {
-                    label: "حاضر",
-                    data: trend.present,
-                    backgroundColor: "#7c3aed",
-                    borderColor: "#7c3aed",
-                    borderWidth: 1,
-                  },
-                  {
-                    label: "غائب",
-                    data: trend.absent,
-                    backgroundColor: "#ef4444",
-                    borderColor: "#ef4444",
-                    borderWidth: 1,
-                  },
-                ],
-              }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: "top",
-                    labels: {
-                      color: "#f3f4f6",
-                      font: {
-                        family: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-                      },
-                    },
-                  },
-                  title: { display: false },
-                },
-                scales: {
-                  x: {
-                    title: {
-                      display: true,
-                      text: "اليوم",
-                      color: "#f3f4f6",
-                      font: {
-                        family: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-                      },
-                    },
-                    ticks: {
-                      color: "#f3f4f6",
-                      font: {
-                        family: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-                      },
-                    },
-                  },
-                  y: {
-                    title: {
-                      display: true,
-                      text: "عدد الصيادلة",
-                      color: "#f3f4f6",
-                      font: {
-                        family: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-                      },
-                    },
-                    ticks: {
-                      color: "#f3f4f6",
-                      font: {
-                        family: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-                      },
-                    },
-                    beginAtZero: true,
-                  },
-                },
-              }}
-            />
-          </div>
-        )}
-      </div>
+        </motion.button>
 
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-4 mb-8">
-        <button
-          className="bg-gradient-to-r from-purple-700 to-fuchsia-600 text-white px-6 py-3 rounded-lg hover:opacity-90 transition-all font-medium"
-          onClick={() => navigate("/lead/pharmacies")}
-        >
-          عرض كل الصيدليات
-        </button>
-        <button
-          className="bg-gradient-to-r from-purple-700 to-fuchsia-600 text-white px-6 py-3 rounded-lg hover:opacity-90 transition-all font-medium"
+        <motion.button
+          className="group relative overflow-hidden bg-gradient-to-br from-emerald-600 to-teal-600 text-white p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-emerald-500/30"
           onClick={() => navigate("/lead/pharmacists")}
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
         >
-          عرض كل الصيادلة
-        </button>
-        <button
-          className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
-          onClick={() => navigate("/lead/pharmacies")}
-        >
-          + إضافة صيدلية
-        </button>
-        <button
-          className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
-          onClick={() => navigate("/lead/pharmacists")}
-        >
-          + إضافة صيدلي
-        </button>
-        <button
-          className="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium"
+          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-300"></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <Users size={20} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold">إدارة الصيادلة</div>
+                <div className="text-sm text-emerald-200/80">
+                  إضافة وإدارة الصيادلة
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <ArrowRight
+                size={20}
+                className="text-white/80 group-hover:translate-x-1 transition-transform"
+              />
+              <div className="text-sm text-emerald-200/60">انقر للعرض</div>
+            </div>
+          </div>
+        </motion.button>
+
+        <motion.button
+          className="group relative overflow-hidden bg-gradient-to-br from-amber-600 to-orange-600 text-white p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-amber-500/30"
           onClick={() => navigate("/lead/attendance")}
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
         >
-          مراقبة الحضور
-        </button>
+          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-300"></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <Calendar size={20} className="text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold">مراقبة الحضور</div>
+                <div className="text-sm text-amber-200/80">
+                  تتبع حضور الصيادلة
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <ArrowRight
+                size={20}
+                className="text-white/80 group-hover:translate-x-1 transition-transform"
+              />
+              <div className="text-sm text-amber-200/60">انقر للعرض</div>
+            </div>
+          </div>
+        </motion.button>
       </div>
     </div>
   );

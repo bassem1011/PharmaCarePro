@@ -1,9 +1,15 @@
 import React, { useEffect, useState } from "react";
+import { createPharmacy, deletePharmacy } from "../utils/firestoreService";
 import {
-  listPharmacies,
-  createPharmacy,
-  deletePharmacy,
-} from "../utils/firestoreService";
+  collection,
+  onSnapshot,
+  query,
+  where,
+  getDoc,
+  doc,
+} from "firebase/firestore";
+import { db } from "../utils/firebase";
+import { getAuth } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
@@ -16,38 +22,92 @@ export default function PharmaciesPage() {
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [deletingPharmacy, setDeletingPharmacy] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
-
-  const fetchPharmacies = async () => {
-    setLoading(true);
-    try {
-      const data = await listPharmacies();
-      setPharmacies(data);
-    } catch (err) {
-      setError("فشل تحميل الصيدليات");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const auth = getAuth();
 
   useEffect(() => {
-    fetchPharmacies();
-  }, []);
+    setLoading(true);
+    setError("");
+
+    // Get current user's UID for filtering
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setError("User not authenticated");
+      setLoading(false);
+      return;
+    }
+
+    // Filter pharmacies by ownerId (multi-tenancy)
+    const q = query(
+      collection(db, "pharmacies"),
+      where("ownerId", "==", currentUser.uid)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setPharmacies(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+        setError(""); // Clear any previous errors
+      },
+      (error) => {
+        console.error("Error fetching pharmacies:", error);
+        setError("فشل تحميل الصيدليات");
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [auth.currentUser]);
 
   const handleAddPharmacy = async (e) => {
     e.preventDefault();
     if (!newName.trim()) return;
+
     setError("");
+    setSuccess("");
+    setIsSubmitting(true);
+
     try {
-      await createPharmacy(newName.trim());
+      console.log("Creating pharmacy with name:", newName.trim());
+      console.log("Current user:", auth.currentUser);
+
+      const result = await createPharmacy(newName.trim());
+      console.log("Pharmacy created successfully:", result);
+
       setNewName("");
       setShowForm(false);
-      fetchPharmacies();
+      setSuccess("تم إنشاء الصيدلية بنجاح!");
+
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSuccess("");
+      }, 3000);
+
+      // No need to call fetchPharmacies - onSnapshot will update automatically
     } catch (err) {
-      setError("فشل إضافة الصيدلية");
+      console.error("Error creating pharmacy:", err);
+      console.error("Error details:", {
+        message: err.message,
+        code: err.code,
+        stack: err.stack,
+      });
+
+      // Provide more specific error messages
+      if (err.message.includes("permission")) {
+        setError("خطأ في الصلاحيات - تأكد من تسجيل الدخول بشكل صحيح");
+      } else if (err.message.includes("network")) {
+        setError("خطأ في الاتصال - تحقق من اتصال الإنترنت");
+      } else {
+        setError(`فشل إضافة الصيدلية: ${err.message}`);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -62,10 +122,62 @@ export default function PharmaciesPage() {
     setDeleteError("");
 
     try {
+      // Debug: Log current user info
+      const currentUser = auth.currentUser;
+      console.log("Current user:", currentUser);
+      console.log("Current user UID:", currentUser?.uid);
+
+      if (!currentUser) {
+        setDeleteError("يجب تسجيل الدخول كمسؤول");
+        return;
+      }
+
+      // Debug: Get current user's role
+      const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
+      console.log(
+        "Current user document:",
+        currentUserDoc.exists() ? currentUserDoc.data() : "Not found"
+      );
+
+      if (!currentUserDoc.exists()) {
+        setDeleteError("بيانات المستخدم غير موجودة");
+        return;
+      }
+
+      const currentUserData = currentUserDoc.data();
+      console.log("Current user role:", currentUserData.role);
+      console.log("Current user data:", currentUserData);
+
+      // First check if the pharmacy exists and get its data
+      const pharmacyDoc = await getDoc(doc(db, "pharmacies", pharmacyId));
+      if (!pharmacyDoc.exists()) {
+        setDeleteError("الصيدلية غير موجودة");
+        return;
+      }
+
+      const pharmacyData = pharmacyDoc.data();
+      console.log("Pharmacy data:", pharmacyData);
+      console.log("Pharmacy ownerId:", pharmacyData.ownerId);
+      console.log("Current user UID:", currentUser.uid);
+      console.log("Ownership check:", pharmacyData.ownerId === currentUser.uid);
+
+      // Check if the current user is a lead and owns this pharmacy
+      if (currentUserData.role !== "lead") {
+        setDeleteError("يجب أن تكون مسؤول لحذف الصيدليات");
+        return;
+      }
+
+      // For lead users, check ownership
+      if (pharmacyData.ownerId && pharmacyData.ownerId !== currentUser.uid) {
+        setDeleteError("لا يمكنك حذف صيدلية لا تملكها");
+        return;
+      }
+
       await deletePharmacy(pharmacyId);
-      await fetchPharmacies(); // Refresh the list
+      // No need to call fetchPharmacies - onSnapshot will update automatically
     } catch (err) {
-      setDeleteError("فشل حذف الصيدلية");
+      console.error("Error deleting pharmacy:", err);
+      setDeleteError("فشل حذف الصيدلية: " + err.message);
     } finally {
       setDeletingPharmacy(null);
     }
@@ -125,17 +237,19 @@ export default function PharmaciesPage() {
 
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-bold text-fuchsia-400">الصيدليات</h2>
-        <motion.button
-          className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white px-8 py-4 rounded-xl hover:from-purple-700 hover:via-fuchsia-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-purple-500/25 transform hover:scale-105"
-          onClick={() => setShowForm((v) => !v)}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          + إضافة صيدلية
-        </motion.button>
+        {!error && (
+          <motion.button
+            className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white px-8 py-4 rounded-xl hover:from-purple-700 hover:via-fuchsia-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-purple-500/25 transform hover:scale-105"
+            onClick={() => setShowForm((v) => !v)}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            + إضافة صيدلية
+          </motion.button>
+        )}
       </div>
 
-      {/* Error Messages */}
+      {/* Error and Success Messages */}
       <AnimatePresence>
         {error && (
           <motion.div
@@ -145,7 +259,33 @@ export default function PharmaciesPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            {error}
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={20} />
+              <div>
+                <div className="font-bold mb-1">خطأ في التحميل</div>
+                <div className="text-sm opacity-80">{error}</div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {success && (
+          <motion.div
+            className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-2 border-green-500/50 rounded-2xl p-6 text-green-400 backdrop-blur-sm"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-5 bg-green-400 rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 bg-green-900 rounded-full"></div>
+              </div>
+              <div>
+                <div className="font-bold mb-1">تم بنجاح</div>
+                <div className="text-sm opacity-80">{success}</div>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -157,7 +297,13 @@ export default function PharmaciesPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            {deleteError}
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={20} />
+              <div>
+                <div className="font-bold mb-1">خطأ في الحذف</div>
+                <div className="text-sm opacity-80">{deleteError}</div>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -189,11 +335,19 @@ export default function PharmaciesPage() {
               </div>
               <motion.button
                 type="submit"
-                className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-4 rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-green-500/25 transform hover:scale-105"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-4 rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-green-500/25 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={{ scale: isSubmitting ? 1 : 1.05 }}
+                whileTap={{ scale: isSubmitting ? 1 : 0.95 }}
+                disabled={isSubmitting}
               >
-                حفظ
+                {isSubmitting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    جاري الحفظ...
+                  </>
+                ) : (
+                  "حفظ"
+                )}
               </motion.button>
               <motion.button
                 type="button"
@@ -299,7 +453,7 @@ export default function PharmaciesPage() {
       )}
 
       {/* Empty State */}
-      {!loading && pharmacies.length === 0 && (
+      {!loading && pharmacies.length === 0 && !error && (
         <motion.div
           className="text-center py-16"
           initial={{ opacity: 0, y: 20 }}
@@ -320,6 +474,34 @@ export default function PharmaciesPage() {
             whileTap={{ scale: 0.95 }}
           >
             + إضافة صيدلية
+          </motion.button>
+        </motion.div>
+      )}
+
+      {/* Authentication Error State */}
+      {!loading && error && (
+        <motion.div
+          className="text-center py-16"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="text-8xl mb-6 transform hover:scale-110 transition-transform duration-300">
+            🔒
+          </div>
+          <h3 className="text-2xl font-bold text-white mb-3">
+            خطأ في المصادقة
+          </h3>
+          <p className="text-gray-400 text-lg mb-8">
+            يرجى تسجيل الدخول مرة أخرى للوصول إلى إدارة الصيدليات
+          </p>
+          <motion.button
+            className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white px-8 py-4 rounded-xl hover:from-purple-700 hover:via-fuchsia-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-2xl hover:shadow-purple-500/25 transform hover:scale-105"
+            onClick={() => navigate("/login")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            تسجيل الدخول
           </motion.button>
         </motion.div>
       )}

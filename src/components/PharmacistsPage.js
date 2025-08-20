@@ -5,6 +5,11 @@ import {
   setDoc,
   doc,
   deleteDoc,
+  onSnapshot,
+  query,
+  where,
+  writeBatch,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "../utils/firebase";
 import { getAuth } from "firebase/auth";
@@ -35,11 +40,30 @@ export default function PharmacistsPage() {
   const fetchPharmacists = async () => {
     setLoading(true);
     try {
-      const usersSnap = await getDocs(collection(db, "users"));
+      // Get current user's UID for filtering
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError("User not authenticated");
+        setLoading(false);
+        return;
+      }
+
+      // Filter users by ownerId (multi-tenancy) - only show pharmacists created by this lead
+      const usersQuery = query(
+        collection(db, "users"),
+        where("ownerId", "==", currentUser.uid)
+      );
+      const usersSnap = await getDocs(usersQuery);
       setPharmacists(
         usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       );
-      const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+
+      // Filter pharmacies by ownerId (multi-tenancy)
+      const pharmaciesQuery = query(
+        collection(db, "pharmacies"),
+        where("ownerId", "==", currentUser.uid)
+      );
+      const pharmaciesSnap = await getDocs(pharmaciesQuery);
       setPharmacies(
         pharmaciesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       );
@@ -51,8 +75,42 @@ export default function PharmacistsPage() {
   };
 
   useEffect(() => {
-    fetchPharmacists();
-  }, []);
+    // Realtime subscriptions with owner filtering
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setError("User not authenticated");
+      setLoading(false);
+      return;
+    }
+
+    // Filter users by ownerId
+    const usersQuery = query(
+      collection(db, "users"),
+      where("ownerId", "==", currentUser.uid)
+    );
+    const unsubUsers = onSnapshot(usersQuery, (usersSnap) => {
+      setPharmacists(
+        usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      );
+    });
+
+    // Filter pharmacies by ownerId
+    const pharmaciesQuery = query(
+      collection(db, "pharmacies"),
+      where("ownerId", "==", currentUser.uid)
+    );
+    const unsubPharmacies = onSnapshot(pharmaciesQuery, (pharmSnap) => {
+      setPharmacies(
+        pharmSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      );
+    });
+
+    setLoading(false);
+    return () => {
+      unsubUsers();
+      unsubPharmacies();
+    };
+  }, [auth.currentUser]);
 
   // Generate a unique username
   function generateUsername(name) {
@@ -79,10 +137,18 @@ export default function PharmacistsPage() {
     setGeneratedUsername("");
     setGeneratedPassword("");
     try {
+      // Get current user's UID for ownerId
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError("User not authenticated");
+        return;
+      }
+
       // Generate username and password
       const username = generateUsername(form.name);
       const password = generatePassword();
-      // Save to Firestore (no Firebase Auth)
+
+      // Save to Firestore (no Firebase Auth) with ownerId
       const userDoc = doc(collection(db, "users"));
       await setDoc(userDoc, {
         id: userDoc.id,
@@ -91,6 +157,8 @@ export default function PharmacistsPage() {
         name: form.name,
         role: form.role,
         assignedPharmacy: form.pharmacyId,
+        ownerId: currentUser.uid, // Add ownerId for multi-tenancy
+        createdAt: new Date().toISOString(),
       });
       setSuccess("تم إنشاء الصيدلي بنجاح!");
       setGeneratedUsername(username);
@@ -105,11 +173,36 @@ export default function PharmacistsPage() {
 
   const handleRoleChange = async (pharmacist, newRole) => {
     try {
-      await setDoc(
-        doc(db, "users", pharmacist.id),
-        { ...pharmacist, role: newRole },
-        { merge: true }
-      );
+      if (newRole === "senior" && pharmacist.assignedPharmacy) {
+        const usersSnap = await getDocs(collection(db, "users"));
+        const samePharmacyUsers = usersSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter(
+            (u) =>
+              u.assignedPharmacy === pharmacist.assignedPharmacy &&
+              u.id !== pharmacist.id
+          );
+        const batch = writeBatch(db);
+        samePharmacyUsers.forEach((u) =>
+          batch.set(
+            doc(db, "users", u.id),
+            { role: "regular" },
+            { merge: true }
+          )
+        );
+        batch.set(
+          doc(db, "users", pharmacist.id),
+          { ...pharmacist, role: "senior" },
+          { merge: true }
+        );
+        await batch.commit();
+      } else {
+        await setDoc(
+          doc(db, "users", pharmacist.id),
+          { ...pharmacist, role: newRole },
+          { merge: true }
+        );
+      }
       fetchPharmacists();
     } catch (err) {
       setError("فشل تحديث الدور");
@@ -132,10 +225,63 @@ export default function PharmacistsPage() {
   const handleRemovePharmacist = async (pharmacistId) => {
     if (window.confirm("هل أنت متأكد من حذف هذا الصيدلي؟")) {
       try {
+        // Debug: Log current user info
+        const currentUser = auth.currentUser;
+        console.log("Current user:", currentUser);
+        console.log("Current user UID:", currentUser?.uid);
+
+        if (!currentUser) {
+          setError("يجب تسجيل الدخول كمسؤول");
+          return;
+        }
+
+        // Debug: Get current user's role
+        const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
+        console.log(
+          "Current user document:",
+          currentUserDoc.exists() ? currentUserDoc.data() : "Not found"
+        );
+
+        if (!currentUserDoc.exists()) {
+          setError("بيانات المستخدم غير موجودة");
+          return;
+        }
+
+        const currentUserData = currentUserDoc.data();
+        console.log("Current user role:", currentUserData.role);
+        console.log("Current user data:", currentUserData);
+
+        // First check if the user exists and get their data
+        const userDoc = await getDoc(doc(db, "users", pharmacistId));
+        if (!userDoc.exists()) {
+          setError("الصيدلي غير موجود");
+          return;
+        }
+
+        const userData = userDoc.data();
+        console.log("Pharmacist data:", userData);
+        console.log("Pharmacist ownerId:", userData.ownerId);
+        console.log("Current user UID:", currentUser.uid);
+        console.log("Ownership check:", userData.ownerId === currentUser.uid);
+
+        // Check if the current user is a lead and owns this pharmacist
+        if (currentUserData.role !== "lead") {
+          setError("يجب أن تكون مسؤول لحذف الصيادلة");
+          return;
+        }
+
+        // For lead users, check ownership
+        if (userData.ownerId && userData.ownerId !== currentUser.uid) {
+          setError("لا يمكنك حذف صيدلي لا تملكه");
+          return;
+        }
+
+        // Delete the user document
         await deleteDoc(doc(db, "users", pharmacistId));
-        fetchPharmacists();
+        // No need to call fetchPharmacists - onSnapshot will update automatically
       } catch (err) {
-        setError("فشل حذف الصيدلي");
+        console.error("Error deleting pharmacist:", err);
+        setError("فشل حذف الصيدلي: " + err.message);
       }
     }
   };

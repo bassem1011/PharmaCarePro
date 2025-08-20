@@ -29,6 +29,7 @@ export async function signUp(
     email,
     role,
     assignedPharmacy,
+    ownerId: user.uid, // Lead users own themselves
   });
   return user;
 }

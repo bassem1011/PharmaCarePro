@@ -7,8 +7,12 @@ import {
   updateDoc,
   setDoc,
   getDoc,
+  query,
+  where,
+  onSnapshot,
 } from "firebase/firestore";
 import { db } from "../utils/firebase";
+import { getAuth } from "firebase/auth";
 import { Calendar, CheckCircle, XCircle, Clock, Building2 } from "lucide-react";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
@@ -42,16 +46,112 @@ export default function AttendancePage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch pharmacies
-        const pharmaciesSnap = await getDocs(collection(db, "pharmacies"));
+        // Get current user for multi-tenancy
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          // Check if user is logged in via localStorage (regular/senior pharmacist)
+          const pharmaUser = localStorage.getItem("pharmaUser");
+          if (pharmaUser) {
+            try {
+              const parsedUser = JSON.parse(pharmaUser);
+              if (parsedUser && parsedUser.username && parsedUser.role) {
+                // For senior pharmacists, fetch their assigned pharmacy and pharmacists
+                if (
+                  parsedUser.role === "senior" &&
+                  parsedUser.assignedPharmacy
+                ) {
+                  // Fetch the assigned pharmacy
+                  const pharmacyDoc = await getDoc(
+                    doc(db, "pharmacies", parsedUser.assignedPharmacy)
+                  );
+                  if (pharmacyDoc.exists()) {
+                    const pharmacyData = {
+                      id: pharmacyDoc.id,
+                      ...pharmacyDoc.data(),
+                    };
+                    setPharmacies([pharmacyData]);
+
+                    // Fetch pharmacists assigned to this pharmacy
+                    const pharmacistsQuery = query(
+                      collection(db, "users"),
+                      where(
+                        "assignedPharmacy",
+                        "==",
+                        parsedUser.assignedPharmacy
+                      )
+                    );
+                    const pharmacistsSnap = await getDocs(pharmacistsQuery);
+                    const pharmacistsData = pharmacistsSnap.docs.map((doc) => ({
+                      id: doc.id,
+                      ...doc.data(),
+                    }));
+                    setPharmacists(pharmacistsData);
+
+                    // Fetch attendance data for the assigned pharmacy
+                    const attendanceRef = doc(
+                      db,
+                      "pharmacies",
+                      parsedUser.assignedPharmacy,
+                      "attendance",
+                      selectedDate
+                    );
+                    const attendanceSnap = await getDoc(attendanceRef);
+                    const attendanceMap = {};
+                    attendanceMap[parsedUser.assignedPharmacy] =
+                      attendanceSnap.exists() ? attendanceSnap.data() : {};
+                    setAttendanceData(attendanceMap);
+                  }
+                } else {
+                  console.error(
+                    "Senior pharmacist not assigned to any pharmacy"
+                  );
+                  setPharmacies([]);
+                  setPharmacists([]);
+                  setAttendanceData({});
+                }
+              } else {
+                console.error("Invalid user data in localStorage");
+                setPharmacies([]);
+                setPharmacists([]);
+                setAttendanceData({});
+              }
+            } catch (error) {
+              console.error("Error parsing user data:", error);
+              setPharmacies([]);
+              setPharmacists([]);
+              setAttendanceData({});
+            }
+          } else {
+            console.error("No authenticated user found");
+            setPharmacies([]);
+            setPharmacists([]);
+            setAttendanceData({});
+          }
+          setLoading(false);
+          return;
+        }
+
+        // For lead pharmacists (Firebase Auth users)
+        // Fetch only pharmacies owned by current user
+        const pharmaciesQuery = query(
+          collection(db, "pharmacies"),
+          where("ownerId", "==", currentUser.uid)
+        );
+        const pharmaciesSnap = await getDocs(pharmaciesQuery);
         const pharmaciesData = pharmaciesSnap.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
         setPharmacies(pharmaciesData);
 
-        // Fetch pharmacists
-        const pharmacistsSnap = await getDocs(collection(db, "users"));
+        // Fetch only pharmacists owned by current user
+        const pharmacistsQuery = query(
+          collection(db, "users"),
+          where("ownerId", "==", currentUser.uid)
+        );
+        const pharmacistsSnap = await getDocs(pharmacistsQuery);
         const pharmacistsData = pharmacistsSnap.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
@@ -89,7 +189,188 @@ export default function AttendancePage() {
       }
     };
 
-    fetchData();
+    let unsubscribePharmacies = null;
+    let unsubscribePharmacists = null;
+    let unsubscribeAttendance = null;
+
+    const setupRealTimeListeners = async () => {
+      setLoading(true);
+      try {
+        // Get current user for multi-tenancy
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          // Check if user is logged in via localStorage (regular/senior pharmacist)
+          const pharmaUser = localStorage.getItem("pharmaUser");
+          if (pharmaUser) {
+            try {
+              const parsedUser = JSON.parse(pharmaUser);
+              if (parsedUser && parsedUser.username && parsedUser.role) {
+                // For senior pharmacists, fetch their assigned pharmacy and pharmacists
+                if (
+                  parsedUser.role === "senior" &&
+                  parsedUser.assignedPharmacy
+                ) {
+                  // Subscribe to the assigned pharmacy
+                  const pharmacyDoc = await getDoc(
+                    doc(db, "pharmacies", parsedUser.assignedPharmacy)
+                  );
+                  if (pharmacyDoc.exists()) {
+                    const pharmacyData = {
+                      id: pharmacyDoc.id,
+                      ...pharmacyDoc.data(),
+                    };
+                    setPharmacies([pharmacyData]);
+
+                    // Subscribe to pharmacists assigned to this pharmacy
+                    const pharmacistsQuery = query(
+                      collection(db, "users"),
+                      where(
+                        "assignedPharmacy",
+                        "==",
+                        parsedUser.assignedPharmacy
+                      )
+                    );
+                    unsubscribePharmacists = onSnapshot(
+                      pharmacistsQuery,
+                      (pharmacistsSnap) => {
+                        const pharmacistsData = pharmacistsSnap.docs.map(
+                          (doc) => ({
+                            id: doc.id,
+                            ...doc.data(),
+                          })
+                        );
+                        setPharmacists(pharmacistsData);
+                      }
+                    );
+
+                    // Subscribe to attendance data for the assigned pharmacy
+                    const attendanceRef = doc(
+                      db,
+                      "pharmacies",
+                      parsedUser.assignedPharmacy,
+                      "attendance",
+                      selectedDate
+                    );
+                    unsubscribeAttendance = onSnapshot(
+                      attendanceRef,
+                      (attendanceSnap) => {
+                        const attendanceMap = {};
+                        attendanceMap[parsedUser.assignedPharmacy] =
+                          attendanceSnap.exists() ? attendanceSnap.data() : {};
+                        setAttendanceData(attendanceMap);
+                      }
+                    );
+                  }
+                } else {
+                  console.error(
+                    "Senior pharmacist not assigned to any pharmacy"
+                  );
+                  setPharmacies([]);
+                  setPharmacists([]);
+                  setAttendanceData({});
+                }
+              } else {
+                console.error("Invalid user data in localStorage");
+                setPharmacies([]);
+                setPharmacists([]);
+                setAttendanceData({});
+              }
+            } catch (error) {
+              console.error("Error parsing user data:", error);
+              setPharmacies([]);
+              setPharmacists([]);
+              setAttendanceData({});
+            }
+          } else {
+            console.error("No authenticated user found");
+            setPharmacies([]);
+            setPharmacists([]);
+            setAttendanceData({});
+          }
+          setLoading(false);
+          return;
+        }
+
+        // For lead pharmacists (Firebase Auth users)
+        // Subscribe to pharmacies owned by current user
+        const pharmaciesQuery = query(
+          collection(db, "pharmacies"),
+          where("ownerId", "==", currentUser.uid)
+        );
+        unsubscribePharmacies = onSnapshot(
+          pharmaciesQuery,
+          (pharmaciesSnap) => {
+            const pharmaciesData = pharmaciesSnap.docs.map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            }));
+            setPharmacies(pharmaciesData);
+          }
+        );
+
+        // Subscribe to pharmacists owned by current user
+        const pharmacistsQuery = query(
+          collection(db, "users"),
+          where("ownerId", "==", currentUser.uid)
+        );
+        unsubscribePharmacists = onSnapshot(
+          pharmacistsQuery,
+          (pharmacistsSnap) => {
+            const pharmacistsData = pharmacistsSnap.docs
+              .map((doc) => ({ id: doc.id, ...doc.data() }))
+              .filter((ph) => ph.role !== "lead");
+            setPharmacists(pharmacistsData);
+          }
+        );
+
+        // Fetch pharmacies once to set up attendance listeners for each
+        const pharmaciesSnapshotForAttendance = await getDocs(pharmaciesQuery);
+        const pharmaciesDataForAttendance =
+          pharmaciesSnapshotForAttendance.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+        // Set up attendance listeners for each pharmacy
+        const attendanceListeners = pharmaciesDataForAttendance.map(
+          (pharmacy) => {
+            const attendanceRef = doc(
+              db,
+              "pharmacies",
+              pharmacy.id,
+              "attendance",
+              selectedDate
+            );
+            return onSnapshot(attendanceRef, (attendanceSnap) => {
+              setAttendanceData((prev) => ({
+                ...prev,
+                [pharmacy.id]: attendanceSnap.exists()
+                  ? attendanceSnap.data()
+                  : {},
+              }));
+            });
+          }
+        );
+        // Store these listeners to unsubscribe later
+        unsubscribeAttendance = () =>
+          attendanceListeners.forEach((unsub) => unsub());
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Error setting up real-time listeners:", error);
+        setLoading(false);
+      }
+    };
+
+    setupRealTimeListeners();
+
+    return () => {
+      if (unsubscribePharmacies) unsubscribePharmacies();
+      if (unsubscribePharmacists) unsubscribePharmacists();
+      if (unsubscribeAttendance) unsubscribeAttendance();
+    };
   }, [selectedDate]);
 
   // Calculate statistics
@@ -125,6 +406,13 @@ export default function AttendancePage() {
       attendanceRate,
     });
   }, [pharmacists, attendanceData, selectedPharmacy]);
+
+  // Auto-select pharmacy for senior pharmacists with single pharmacy
+  useEffect(() => {
+    if (pharmacies.length === 1) {
+      setSelectedPharmacy(pharmacies[0].id);
+    }
+  }, [pharmacies]);
 
   const handleAttendanceChange = async (pharmacistId, pharmacyId, present) => {
     try {
@@ -328,18 +616,28 @@ export default function AttendancePage() {
             </div>
             <div className="flex items-center gap-3">
               <Building2 className="text-fuchsia-400" size={20} />
-              <select
-                value={selectedPharmacy}
-                onChange={(e) => setSelectedPharmacy(e.target.value)}
-                className="bg-gray-900/80 border-2 border-fuchsia-700/50 rounded-xl px-4 py-2 text-white focus:ring-4 focus:ring-fuchsia-600/30 focus:border-fuchsia-500 transition-all duration-300"
-              >
-                <option value="all">جميع الصيدليات</option>
-                {pharmacies.map((pharmacy) => (
-                  <option key={pharmacy.id} value={pharmacy.id}>
-                    {pharmacy.name}
-                  </option>
-                ))}
-              </select>
+              {pharmacies.length > 1 ? (
+                <select
+                  value={selectedPharmacy}
+                  onChange={(e) => setSelectedPharmacy(e.target.value)}
+                  className="bg-gray-900/80 border-2 border-fuchsia-700/50 rounded-xl px-4 py-2 text-white focus:ring-4 focus:ring-fuchsia-600/30 focus:border-fuchsia-500 transition-all duration-300"
+                >
+                  <option value="all">جميع الصيدليات</option>
+                  {pharmacies.map((pharmacy) => (
+                    <option key={pharmacy.id} value={pharmacy.id}>
+                      {pharmacy.name}
+                    </option>
+                  ))}
+                </select>
+              ) : pharmacies.length === 1 ? (
+                <div className="bg-gray-900/80 border-2 border-fuchsia-700/50 rounded-xl px-4 py-2 text-white">
+                  {pharmacies[0].name}
+                </div>
+              ) : (
+                <div className="bg-gray-900/80 border-2 border-gray-700/50 rounded-xl px-4 py-2 text-gray-400">
+                  لا توجد صيدليات
+                </div>
+              )}
             </div>
           </div>
         </motion.div>

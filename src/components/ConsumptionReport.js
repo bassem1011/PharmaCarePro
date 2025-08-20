@@ -3,7 +3,7 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BarChart3, Download, Calendar } from "lucide-react";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 const ConsumptionReport = ({
   items,
@@ -17,7 +17,11 @@ const ConsumptionReport = ({
 
   // Calculate consumption from daily dispensed data
   const reportData = useMemo(() => {
+    console.log("Calculating report data...");
+    console.log("Input data:", { items, itemsByMonth, month, year });
+
     if (!items || !Array.isArray(items) || !itemsByMonth) {
+      console.warn("Missing required data for report calculation");
       return {
         months: [],
         items: [],
@@ -60,6 +64,7 @@ const ConsumptionReport = ({
     };
 
     const months = getLastThreeMonths();
+    console.log("Calculated months:", months);
 
     // Filter valid items
     const validItems = items.filter(
@@ -71,48 +76,71 @@ const ConsumptionReport = ({
         item.name.trim() !== ""
     );
 
+    console.log("Valid items:", validItems);
+
     // Calculate consumption for each item from daily dispensed data
     const itemsWithConsumption = validItems.map((item) => {
-      const consumptions = months.map((month) => {
-        // Get the month key for this specific month
-        const monthKey = month.key;
+      try {
+        const consumptions = months.map((month) => {
+          // Get the month key for this specific month
+          const monthKey = month.key;
 
-        // Get items for this specific month from itemsByMonth
-        const monthItems = itemsByMonth[monthKey] || [];
+          // Get items for this specific month from itemsByMonth
+          const monthItems = itemsByMonth[monthKey] || [];
 
-        // Find the item in this month's data
-        const monthItem = monthItems.find((mItem) => mItem.name === item.name);
-
-        // Calculate total dispensed for this specific month
-        if (monthItem && monthItem.dailyDispense) {
-          const monthDispensed = Object.values(monthItem.dailyDispense).reduce(
-            (sum, val) => {
-              return sum + Math.floor(Number(val || 0));
-            },
-            0
+          // Find the item in this month's data
+          const monthItem = monthItems.find(
+            (mItem) => mItem.name === item.name
           );
-          return monthDispensed;
-        }
-        return 0; // Return 0 if no data for this month
-      });
 
-      // Calculate average across all 3 months
-      const totalConsumption = consumptions.reduce((sum, val) => sum + val, 0);
+          // Calculate total dispensed for this specific month
+          if (monthItem && monthItem.dailyDispense) {
+            const monthDispensed = Object.values(
+              monthItem.dailyDispense
+            ).reduce((sum, val) => {
+              return sum + Math.floor(Number(val || 0));
+            }, 0);
+            return monthDispensed;
+          }
+          return 0; // Return 0 if no data for this month
+        });
 
-      // Calculate average only for months with actual data (non-zero)
-      const monthsWithData = consumptions.filter((val) => val > 0);
-      const average =
-        monthsWithData.length > 0
-          ? Math.floor(totalConsumption / monthsWithData.length)
-          : 0;
+        // Calculate average across all 3 months
+        const totalConsumption = consumptions.reduce(
+          (sum, val) => sum + val,
+          0
+        );
 
-      return {
-        name: item.name,
-        consumptions,
-        total: totalConsumption,
-        average,
-      };
+        // Calculate average only for months with actual data (non-zero)
+        const monthsWithData = consumptions.filter((val) => val > 0);
+        const average =
+          monthsWithData.length > 0
+            ? Math.floor(totalConsumption / monthsWithData.length)
+            : 0;
+
+        return {
+          name: item.name,
+          consumptions,
+          total: totalConsumption,
+          average,
+        };
+      } catch (error) {
+        console.error(
+          "Error calculating consumption for item:",
+          item.name,
+          error
+        );
+        // Return fallback data for this item
+        return {
+          name: item.name,
+          consumptions: [0, 0, 0],
+          total: 0,
+          average: 0,
+        };
+      }
     });
+
+    console.log("Items with consumption:", itemsWithConsumption);
 
     // Calculate summary statistics
     const totalItems = itemsWithConsumption.length;
@@ -128,7 +156,7 @@ const ConsumptionReport = ({
       0
     ); // Current month is at index 2
 
-    return {
+    const result = {
       months,
       items: itemsWithConsumption,
       summary: {
@@ -137,17 +165,60 @@ const ConsumptionReport = ({
         currentMonthTotal,
       },
     };
+
+    console.log("Final report data:", result);
+    return result;
   }, [items, month, year, itemsByMonth]);
 
   // Export to PDF
   const exportPDF = () => {
     try {
+      console.log("Starting PDF generation...");
+      console.log("reportData:", reportData);
+      console.log("items:", items);
+      console.log("itemsByMonth:", itemsByMonth);
+
+      // Check if jsPDF is available
+      if (typeof jsPDF === "undefined") {
+        console.error("jsPDF is not available");
+        alert("مكتبة PDF غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.");
+        return;
+      }
+
+      // Check if autoTable is available
+      if (typeof autoTable === "undefined") {
+        console.error("autoTable is not available");
+        alert("مكتبة الجداول غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.");
+        return;
+      }
+
+      // Validate data before generating PDF
+      if (!reportData) {
+        console.error("reportData is null or undefined");
+        alert("لا توجد بيانات متاحة لإنشاء التقرير");
+        return;
+      }
+
+      if (!reportData.items) {
+        console.error("reportData.items is null or undefined");
+        alert("لا توجد بيانات متاحة لإنشاء التقرير");
+        return;
+      }
+
+      if (reportData.items.length === 0) {
+        console.error("reportData.items is empty");
+        alert("لا توجد بيانات متاحة لإنشاء التقرير");
+        return;
+      }
+
+      console.log("Data validation passed, creating PDF...");
+
       const doc = new jsPDF("landscape", "mm", "a4");
 
       // Title
       doc.setFontSize(18);
       doc.setTextColor(103, 58, 183);
-      doc.text("Consumption Report - Last 3 Months", 148, 20, {
+      doc.text("تقرير الاستهلاك - آخر 3 أشهر", 148, 20, {
         align: "center",
       });
 
@@ -155,7 +226,7 @@ const ConsumptionReport = ({
       doc.setFontSize(12);
       doc.setTextColor(75, 85, 99);
       doc.text(
-        `Report Date: ${new Date().toLocaleDateString("en-US")}`,
+        `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`,
         148,
         30,
         { align: "center" }
@@ -163,20 +234,45 @@ const ConsumptionReport = ({
 
       // Table headers
       const headers = [
-        "Item Name",
+        "اسم الصنف",
         ...reportData.months.map((m) => m.name),
-        "Average",
+        "المتوسط",
       ];
 
-      // Table data
-      const tableData = reportData.items.map((item) => [
-        item.name,
-        ...item.consumptions.map((val) => val.toString()),
-        item.average.toString(),
-      ]);
+      console.log("Headers:", headers);
+
+      // Table data with validation
+      const tableData = reportData.items
+        .filter((item) => {
+          const isValid = item && item.name && item.consumptions;
+          if (!isValid) {
+            console.warn("Filtering out invalid item:", item);
+          }
+          return isValid;
+        })
+        .map((item) => {
+          const row = [
+            item.name || "غير محدد",
+            ...item.consumptions.map((val) => (val || 0).toString()),
+            (item.average || 0).toString(),
+          ];
+          console.log("Table row:", row);
+          return row;
+        });
+
+      console.log("Table data:", tableData);
+
+      // Check if we have valid data
+      if (tableData.length === 0) {
+        console.error("No valid table data after filtering");
+        alert("لا توجد بيانات صالحة لإنشاء التقرير");
+        return;
+      }
+
+      console.log("Generating table with autoTable...");
 
       // Generate table
-      doc.autoTable({
+      autoTable(doc, {
         head: [headers],
         body: tableData,
         startY: 40,
@@ -195,13 +291,110 @@ const ConsumptionReport = ({
         alternateRowStyles: {
           fillColor: [248, 250, 252],
         },
+        didDrawPage: function (data) {
+          // Add page numbers
+          const pageCount = doc.internal.getNumberOfPages();
+          for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setTextColor(107, 114, 128);
+            doc.text(
+              `صفحة ${i} من ${pageCount}`,
+              doc.internal.pageSize.width - 15,
+              doc.internal.pageSize.height - 8,
+              { align: "center" }
+            );
+          }
+        },
       });
 
-      // Save PDF
-      doc.save("consumption-report.pdf");
+      console.log("Table generated successfully, saving PDF...");
+
+      // Save PDF with Arabic filename
+      const fileName = `تقرير_الاستهلاك_${new Date()
+        .toLocaleDateString("ar-SA")
+        .replace(/\//g, "-")}.pdf`;
+      doc.save(fileName);
+
+      // Show success message
+      if (typeof window !== "undefined" && window.toast) {
+        window.toast("تم تحميل التقرير بنجاح", "success");
+      } else {
+        alert("تم تحميل التقرير بنجاح");
+      }
+
+      console.log("PDF generation completed successfully");
     } catch (error) {
       console.error("Error generating PDF:", error);
-      alert("Error generating PDF. Please try again.");
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        reportData: reportData,
+        items: items,
+        itemsByMonth: itemsByMonth,
+      });
+
+      // Try fallback PDF generation
+      try {
+        console.log("Attempting fallback PDF generation...");
+        const doc = new jsPDF("landscape", "mm", "a4");
+
+        // Simple title
+        doc.setFontSize(18);
+        doc.setTextColor(103, 58, 183);
+        doc.text("تقرير الاستهلاك", 148, 20, { align: "center" });
+
+        // Simple date
+        doc.setFontSize(12);
+        doc.setTextColor(75, 85, 99);
+        doc.text(
+          `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`,
+          148,
+          30,
+          { align: "center" }
+        );
+
+        // Simple table with available data
+        const simpleHeaders = ["اسم الصنف", "البيانات المتاحة"];
+        const simpleData =
+          items && items.length > 0
+            ? items
+                .slice(0, 10)
+                .map((item) => [
+                  item.name || "غير محدد",
+                  "بيانات الاستهلاك غير متاحة",
+                ])
+            : [["لا توجد بيانات", "لا توجد بيانات"]];
+
+        autoTable(doc, {
+          head: [simpleHeaders],
+          body: simpleData,
+          startY: 40,
+          styles: {
+            fontSize: 10,
+            cellPadding: 3,
+            textColor: [75, 85, 99],
+            halign: "center",
+          },
+          headStyles: {
+            fillColor: [103, 58, 183],
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+            halign: "center",
+          },
+        });
+
+        const fileName = `تقرير_الاستهلاك_مبسط_${new Date()
+          .toLocaleDateString("ar-SA")
+          .replace(/\//g, "-")}.pdf`;
+        doc.save(fileName);
+
+        alert("تم إنشاء تقرير مبسط. يرجى التحقق من البيانات.");
+        console.log("Fallback PDF generated successfully");
+      } catch (fallbackError) {
+        console.error("Fallback PDF generation also failed:", fallbackError);
+        alert("حدث خطأ أثناء إنشاء التقرير. يرجى المحاولة مرة أخرى.");
+      }
     }
   };
 

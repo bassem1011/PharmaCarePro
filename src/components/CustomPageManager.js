@@ -25,6 +25,16 @@ import {
   X,
 } from "lucide-react";
 import MonthYearModal from "./ui/MonthYearModal";
+import { getAuth } from "firebase/auth";
+import {
+  getDoc,
+  doc,
+  collection,
+  query,
+  where,
+  onSnapshot,
+} from "firebase/firestore";
+import { db } from "../utils/firebase";
 
 const CustomPageManager = ({
   itemsByMonth,
@@ -85,7 +95,78 @@ const CustomPageManager = ({
   }, [customPages]);
 
   useEffect(() => {
-    getCustomPages().then(setCustomPages);
+    let cleanup = null;
+
+    const setupRealTimeListeners = async () => {
+      try {
+        // Get current user for multi-tenancy
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          // Check if user is logged in via localStorage (regular/senior pharmacist)
+          const pharmaUser = localStorage.getItem("pharmaUser");
+          if (pharmaUser) {
+            try {
+              const parsedUser = JSON.parse(pharmaUser);
+              if (parsedUser && parsedUser.username && parsedUser.role) {
+                // For senior pharmacists, they can only see custom pages for their assigned pharmacy
+                if (
+                  parsedUser.role === "senior" &&
+                  parsedUser.assignedPharmacy
+                ) {
+                  // Get the pharmacy owner ID
+                  const pharmacyDoc = await getDoc(
+                    doc(db, "pharmacies", parsedUser.assignedPharmacy)
+                  );
+                  if (pharmacyDoc.exists()) {
+                    const ownerId = pharmacyDoc.data().ownerId;
+
+                    // Subscribe to custom pages owned by the pharmacy owner
+                    const customPagesQuery = query(
+                      collection(db, "customPages"),
+                      where("ownerId", "==", ownerId)
+                    );
+                    cleanup = onSnapshot(customPagesQuery, (pagesSnap) => {
+                      const pagesData = pagesSnap.docs.map((doc) => ({
+                        id: doc.id,
+                        ...doc.data(),
+                      }));
+                      setCustomPages(pagesData);
+                    });
+                  }
+                }
+              }
+            } catch (error) {
+              console.error("Error parsing pharmaUser:", error);
+            }
+          }
+          return;
+        }
+
+        // For lead pharmacists (Firebase Auth users)
+        // Subscribe to custom pages owned by current user
+        const customPagesQuery = query(
+          collection(db, "customPages"),
+          where("ownerId", "==", currentUser.uid)
+        );
+        cleanup = onSnapshot(customPagesQuery, (pagesSnap) => {
+          const pagesData = pagesSnap.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          setCustomPages(pagesData);
+        });
+      } catch (error) {
+        console.error("Error setting up real-time listeners:", error);
+      }
+    };
+
+    setupRealTimeListeners();
+
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, []);
 
   // Get current month's items
