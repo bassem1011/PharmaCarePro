@@ -2,11 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   doc,
-  getDoc,
   collection,
   getDocs,
-  query,
-  where,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -18,7 +15,7 @@ import { useAuthState } from "react-firebase-hooks/auth";
 import { getAuth } from "firebase/auth";
 import { motion } from "framer-motion";
 import Spinner from "./ui/Spinner";
-import Skeleton from "./ui/Skeleton";
+
 import { useInventoryData } from "./InventoryTabs";
 
 function getTodayDateString() {
@@ -66,7 +63,6 @@ export default function PharmacyDetailsPage() {
   // Enhanced navigation handler
   const handleGoBack = () => {
     try {
-      console.log("Navigating back to pharmacies list");
       navigate("/lead/pharmacies");
     } catch (error) {
       console.error("Navigation error:", error);

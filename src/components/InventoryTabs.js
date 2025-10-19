@@ -17,6 +17,7 @@ import Skeleton from "./ui/Skeleton";
 const getMonthKey = (year, month) =>
   `${year}-${String(month + 1).padStart(2, "0")}`;
 
+// TABS array is now used in DashboardGrid component via the tabs prop
 const TABS = [
   { key: "dashboard", label: "الرئيسية", color: "cyan" },
   { key: "dispense", label: "المنصرف اليومي", color: "blue" },
@@ -198,7 +199,6 @@ export function useInventoryData(pharmacyId = null) {
           const parsedUser = JSON.parse(pharmaUser);
           if (parsedUser && parsedUser.assignedPharmacy) {
             actualPharmacyId = parsedUser.assignedPharmacy;
-            console.log("Using assigned pharmacy ID:", actualPharmacyId);
           }
         } catch (error) {
           console.error("Error parsing pharmaUser:", error);
@@ -211,16 +211,9 @@ export function useInventoryData(pharmacyId = null) {
       }
     }
 
-    console.log("Subscribing to pharmacy monthly stock:", actualPharmacyId);
-
     const unsubscribe = subscribeToPharmacyMonthlyStock(
       actualPharmacyId,
       (byMonth) => {
-        console.log(
-          "Received inventory data for pharmacy:",
-          actualPharmacyId,
-          byMonth
-        );
         setItemsByMonth(byMonth);
         setLoading(false);
       }
@@ -258,8 +251,6 @@ export function useInventoryData(pharmacyId = null) {
           }
         }
 
-        console.log("Saving data to pharmacy:", currentPharmacyId);
-
         const savePromises = Object.entries(itemsByMonth).map(
           ([monthKey, items]) => {
             if (items && items.length > 0) {
@@ -272,7 +263,6 @@ export function useInventoryData(pharmacyId = null) {
         );
 
         await Promise.all(savePromises);
-        console.log("Data saved successfully to Firebase");
       } catch (err) {
         setError("فشل حفظ البيانات على الخادم");
         console.error("Save error:", err);
@@ -501,8 +491,6 @@ export function useInventoryData(pharmacyId = null) {
           }
         }
 
-        console.log("Adding item to pharmacy:", currentPharmacyId);
-
         saveWithRetry(
           currentPharmacyId,
           currentMonthKey,
@@ -620,8 +608,7 @@ export function DailyDispenseSection(props) {
     deleteItem,
     loading,
     error,
-    modalOpen,
-    setModalOpen,
+
     handleMonthYearChange,
   } = useInventoryData();
   if (loading)

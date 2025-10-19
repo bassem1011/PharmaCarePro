@@ -9,7 +9,7 @@ import CustomPageManager from "./CustomPageManager";
 import PharmacyShortages from "./PharmacyShortages";
 import AttendancePage from "./AttendancePage";
 import { getPharmacyNameById } from "../utils/firestoreService";
-import Spinner from "./ui/Spinner";
+
 import {
   Home,
   Package,
@@ -235,8 +235,7 @@ export default function PharmacistDashboard() {
     addItem,
     deleteItem,
     handleMonthYearChange,
-    loading,
-    error,
+
     monthlyConsumption,
   } = useInventoryData(assignedPharmacyId);
 

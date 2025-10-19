@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../utils/firebase";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, AlertCircle, CheckCircle, Loader } from "lucide-react";
+import { Eye, EyeOff, AlertCircle, Loader } from "lucide-react";
 
 export default function LoginPage({ goToSignUp }) {
   const [email, setEmail] = useState("");
@@ -34,34 +34,24 @@ export default function LoginPage({ goToSignUp }) {
         }
       } else if (loginType === "username" && username) {
         // Pharmacist login (username/password via Firestore)
-        console.log("Attempting pharmacist login with username:", username);
         try {
           const q = query(
             collection(db, "users"),
             where("username", "==", username)
           );
-          console.log("Querying users collection...");
           const snap = await getDocs(q);
-          console.log("Query result - empty:", snap.empty, "size:", snap.size);
 
           if (snap.empty) throw new Error("اسم المستخدم غير صحيح");
 
           const userDoc = snap.docs[0].data();
-          console.log("User document found:", {
-            username: userDoc.username,
-            role: userDoc.role,
-            assignedPharmacy: userDoc.assignedPharmacy,
-          });
 
           if (userDoc.password !== password)
             throw new Error("كلمة المرور غير صحيحة");
 
           // Save user data to localStorage (simulate login)
           localStorage.setItem("pharmaUser", JSON.stringify(userDoc));
-          console.log("User data saved to localStorage");
 
           if (userDoc.role === "senior" || userDoc.role === "regular") {
-            console.log("Navigating to dashboard...");
             navigate("/dashboard");
           } else {
             setError("الحساب غير مصرح له بالدخول هنا");

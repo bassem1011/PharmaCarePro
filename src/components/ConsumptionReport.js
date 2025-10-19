@@ -1,9 +1,8 @@
 // src/components/ConsumptionReport.jsx
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BarChart3, Download, Calendar } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { BarChart3, Calendar, FileSpreadsheet } from "lucide-react";
+import * as XLSX from 'xlsx';
 
 const ConsumptionReport = ({
   items,
@@ -17,8 +16,7 @@ const ConsumptionReport = ({
 
   // Calculate consumption from daily dispensed data
   const reportData = useMemo(() => {
-    console.log("Calculating report data...");
-    console.log("Input data:", { items, itemsByMonth, month, year });
+    
 
     if (!items || !Array.isArray(items) || !itemsByMonth) {
       console.warn("Missing required data for report calculation");
@@ -64,7 +62,6 @@ const ConsumptionReport = ({
     };
 
     const months = getLastThreeMonths();
-    console.log("Calculated months:", months);
 
     // Filter valid items
     const validItems = items.filter(
@@ -76,7 +73,7 @@ const ConsumptionReport = ({
         item.name.trim() !== ""
     );
 
-    console.log("Valid items:", validItems);
+    
 
     // Calculate consumption for each item from daily dispensed data
     const itemsWithConsumption = validItems.map((item) => {
@@ -140,7 +137,7 @@ const ConsumptionReport = ({
       }
     });
 
-    console.log("Items with consumption:", itemsWithConsumption);
+    
 
     // Calculate summary statistics
     const totalItems = itemsWithConsumption.length;
@@ -166,235 +163,101 @@ const ConsumptionReport = ({
       },
     };
 
-    console.log("Final report data:", result);
     return result;
   }, [items, month, year, itemsByMonth]);
 
-  // Export to PDF
-  const exportPDF = () => {
+  // Export to Excel
+  const exportExcel = () => {
     try {
-      console.log("Starting PDF generation...");
-      console.log("reportData:", reportData);
-      console.log("items:", items);
-      console.log("itemsByMonth:", itemsByMonth);
-
-      // Check if jsPDF is available
-      if (typeof jsPDF === "undefined") {
-        console.error("jsPDF is not available");
-        alert("مكتبة PDF غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.");
-        return;
-      }
-
-      // Check if autoTable is available
-      if (typeof autoTable === "undefined") {
-        console.error("autoTable is not available");
-        alert("مكتبة الجداول غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.");
-        return;
-      }
-
-      // Validate data before generating PDF
-      if (!reportData) {
-        console.error("reportData is null or undefined");
-        alert("لا توجد بيانات متاحة لإنشاء التقرير");
-        return;
-      }
-
-      if (!reportData.items) {
-        console.error("reportData.items is null or undefined");
-        alert("لا توجد بيانات متاحة لإنشاء التقرير");
-        return;
-      }
-
-      if (reportData.items.length === 0) {
-        console.error("reportData.items is empty");
-        alert("لا توجد بيانات متاحة لإنشاء التقرير");
-        return;
-      }
-
-      console.log("Data validation passed, creating PDF...");
-
-      const doc = new jsPDF("landscape", "mm", "a4");
-
-      // Title
-      doc.setFontSize(18);
-      doc.setTextColor(103, 58, 183);
-      doc.text("تقرير الاستهلاك - آخر 3 أشهر", 148, 20, {
-        align: "center",
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Prepare data for Excel
+      const excelData = reportData.items.map(item => {
+        return {
+          "اسم الصنف": item.name || "",
+          [reportData.months[0].name]: Math.floor(item.consumptions[0] || 0),
+          [reportData.months[1].name]: Math.floor(item.consumptions[1] || 0),
+          [reportData.months[2].name]: Math.floor(item.consumptions[2] || 0),
+          "المتوسط": Math.floor(item.average || 0)
+        };
       });
 
-      // Date
-      doc.setFontSize(12);
-      doc.setTextColor(75, 85, 99);
-      doc.text(
-        `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`,
-        148,
-        30,
-        { align: "center" }
-      );
-
-      // Table headers
-      const headers = [
-        "اسم الصنف",
-        ...reportData.months.map((m) => m.name),
-        "المتوسط",
+      // Create worksheet with RTL support
+      const ws = XLSX.utils.json_to_sheet(excelData, { origin: 'A3' });
+      
+      // Add title and date
+      const title = `تقرير متوسط الاستهلاك - آخر 3 أشهر (${reportData.months[2].name})`;
+      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`;
+      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' });
+      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: 'A2' });
+      
+      // Add summary statistics
+      const summaryStartRow = excelData.length + 5;
+      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], { origin: `A${summaryStartRow}` });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الأصناف", reportData.summary.totalItems]], { origin: `A${summaryStartRow + 1}` });
+      XLSX.utils.sheet_add_aoa(ws, [["متوسط الاستهلاك", reportData.summary.averageConsumption]], { origin: `A${summaryStartRow + 2}` });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الشهر الحالي", reportData.summary.currentMonthTotal]], { origin: `A${summaryStartRow + 3}` });
+      
+      // Apply styles using cell references
+      // Style for title
+      ws['A1'] = { v: title, t: 's', s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } } };
+      ws['A2'] = { v: dateStr, t: 's', s: { font: { color: { rgb: "666666" }, sz: 12 } } };
+      
+      // Style for headers (row 3)
+      const headerStyle = { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "6D4CB3" } }, alignment: { horizontal: 'center' } };
+      const headerRow = XLSX.utils.decode_range(ws['!ref']).s.r + 2; // Get the header row (0-indexed)
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const headerCell = XLSX.utils.encode_cell({ r: headerRow, c: C });
+        if (!ws[headerCell]) continue;
+        ws[headerCell].s = headerStyle;
+      }
+      
+      // Style for summary section
+      ws[`A${summaryStartRow}`] = { 
+        v: "ملخص الإحصائيات", 
+        t: 's', 
+        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 }, 
+        fill: { fgColor: { rgb: "EFEFEF" } } }
+      };
+      
+      // Style for summary rows
+      for (let i = 1; i <= 3; i++) {
+        const labelCell = `A${summaryStartRow + i}`;
+        const valueCell = `B${summaryStartRow + i}`;
+        
+        if (ws[labelCell]) {
+          ws[labelCell].s = { font: { bold: true }, fill: { fgColor: { rgb: "F5F5F5" } } };
+        }
+        
+        if (ws[valueCell]) {
+          ws[valueCell].s = { font: { bold: true, color: { rgb: "4F3FB6" } }, alignment: { horizontal: 'center' } };
+        }
+      }
+      
+      // Set column widths for better appearance
+      ws['!cols'] = [
+        { wch: 30 }, // اسم الصنف
+        { wch: 18 }, // الشهر الأول
+        { wch: 18 }, // الشهر الثاني
+        { wch: 18 }, // الشهر الثالث
+        { wch: 18 }, // المتوسط
       ];
-
-      console.log("Headers:", headers);
-
-      // Table data with validation
-      const tableData = reportData.items
-        .filter((item) => {
-          const isValid = item && item.name && item.consumptions;
-          if (!isValid) {
-            console.warn("Filtering out invalid item:", item);
-          }
-          return isValid;
-        })
-        .map((item) => {
-          const row = [
-            item.name || "غير محدد",
-            ...item.consumptions.map((val) => (val || 0).toString()),
-            (item.average || 0).toString(),
-          ];
-          console.log("Table row:", row);
-          return row;
-        });
-
-      console.log("Table data:", tableData);
-
-      // Check if we have valid data
-      if (tableData.length === 0) {
-        console.error("No valid table data after filtering");
-        alert("لا توجد بيانات صالحة لإنشاء التقرير");
-        return;
-      }
-
-      console.log("Generating table with autoTable...");
-
-      // Generate table
-      autoTable(doc, {
-        head: [headers],
-        body: tableData,
-        startY: 40,
-        styles: {
-          fontSize: 10,
-          cellPadding: 3,
-          textColor: [75, 85, 99],
-          halign: "center",
-        },
-        headStyles: {
-          fillColor: [103, 58, 183],
-          textColor: [255, 255, 255],
-          fontStyle: "bold",
-          halign: "center",
-        },
-        alternateRowStyles: {
-          fillColor: [248, 250, 252],
-        },
-        didDrawPage: function (data) {
-          // Add page numbers
-          const pageCount = doc.internal.getNumberOfPages();
-          for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            doc.setFontSize(8);
-            doc.setTextColor(107, 114, 128);
-            doc.text(
-              `صفحة ${i} من ${pageCount}`,
-              doc.internal.pageSize.width - 15,
-              doc.internal.pageSize.height - 8,
-              { align: "center" }
-            );
-          }
-        },
-      });
-
-      console.log("Table generated successfully, saving PDF...");
-
-      // Save PDF with Arabic filename
-      const fileName = `تقرير_الاستهلاك_${new Date()
-        .toLocaleDateString("ar-SA")
-        .replace(/\//g, "-")}.pdf`;
-      doc.save(fileName);
-
-      // Show success message
-      if (typeof window !== "undefined" && window.toast) {
-        window.toast("تم تحميل التقرير بنجاح", "success");
-      } else {
-        alert("تم تحميل التقرير بنجاح");
-      }
-
-      console.log("PDF generation completed successfully");
+      
+      // Set RTL direction for the worksheet
+      ws['!rightToLeft'] = true;
+      
+      // Add to workbook
+      XLSX.utils.book_append_sheet(wb, ws, "تقرير الاستهلاك");
+      
+      // Generate Excel file
+      const fileName = `تقرير_متوسط_الاستهلاك_${reportData.months[2].name.replace(" ", "_")}.xlsx`;
+      XLSX.writeFile(wb, fileName);
     } catch (error) {
-      console.error("Error generating PDF:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        reportData: reportData,
-        items: items,
-        itemsByMonth: itemsByMonth,
-      });
-
-      // Try fallback PDF generation
-      try {
-        console.log("Attempting fallback PDF generation...");
-        const doc = new jsPDF("landscape", "mm", "a4");
-
-        // Simple title
-        doc.setFontSize(18);
-        doc.setTextColor(103, 58, 183);
-        doc.text("تقرير الاستهلاك", 148, 20, { align: "center" });
-
-        // Simple date
-        doc.setFontSize(12);
-        doc.setTextColor(75, 85, 99);
-        doc.text(
-          `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`,
-          148,
-          30,
-          { align: "center" }
-        );
-
-        // Simple table with available data
-        const simpleHeaders = ["اسم الصنف", "البيانات المتاحة"];
-        const simpleData =
-          items && items.length > 0
-            ? items
-                .slice(0, 10)
-                .map((item) => [
-                  item.name || "غير محدد",
-                  "بيانات الاستهلاك غير متاحة",
-                ])
-            : [["لا توجد بيانات", "لا توجد بيانات"]];
-
-        autoTable(doc, {
-          head: [simpleHeaders],
-          body: simpleData,
-          startY: 40,
-          styles: {
-            fontSize: 10,
-            cellPadding: 3,
-            textColor: [75, 85, 99],
-            halign: "center",
-          },
-          headStyles: {
-            fillColor: [103, 58, 183],
-            textColor: [255, 255, 255],
-            fontStyle: "bold",
-            halign: "center",
-          },
-        });
-
-        const fileName = `تقرير_الاستهلاك_مبسط_${new Date()
-          .toLocaleDateString("ar-SA")
-          .replace(/\//g, "-")}.pdf`;
-        doc.save(fileName);
-
-        alert("تم إنشاء تقرير مبسط. يرجى التحقق من البيانات.");
-        console.log("Fallback PDF generated successfully");
-      } catch (fallbackError) {
-        console.error("Fallback PDF generation also failed:", fallbackError);
-        alert("حدث خطأ أثناء إنشاء التقرير. يرجى المحاولة مرة أخرى.");
-      }
+      console.error("Excel export error:", error);
+      alert("حدث خطأ أثناء إنشاء ملف Excel");
     }
   };
 
@@ -511,11 +374,11 @@ const ConsumptionReport = ({
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={exportPDF}
-              className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:from-green-600 hover:to-emerald-700 transition-all flex items-center gap-2"
+              onClick={exportExcel}
+              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-600 hover:to-indigo-700 transition-all duration-300 shadow-lg flex items-center gap-2"
             >
-              <Download className="w-5 h-5" />
-              <span>تصدير PDF</span>
+              <FileSpreadsheet className="w-5 h-5" />
+              <span>تحميل Excel</span>
             </motion.button>
           </div>
         </div>

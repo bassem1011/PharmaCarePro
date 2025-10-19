@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   addCustomPage,
-  getCustomPages,
   deleteCustomPage,
   updateCustomPage,
 } from "../utils/firestoreService";
@@ -19,12 +18,9 @@ import {
   CheckCircle,
   RefreshCw,
   Search,
-  Filter,
-  Download,
-  Upload,
   X,
 } from "lucide-react";
-import MonthYearModal from "./ui/MonthYearModal";
+
 import { getAuth } from "firebase/auth";
 import {
   getDoc,
@@ -204,7 +200,6 @@ const CustomPageManager = ({
       month: month,
       year: year,
     });
-    setCustomPages(await getCustomPages());
     setNewPageName("");
     setIsCreating(false);
     toast("تم إنشاء الصفحة بنجاح!", "success");
@@ -233,8 +228,14 @@ const CustomPageManager = ({
       items: newItems,
       lastUpdated: new Date().toISOString(),
     });
-
-    setCustomPages(await getCustomPages());
+    // Optimistically update local state; real-time snapshot will reconcile
+    setCustomPages((prev) =>
+      prev.map((p) => (p.id === page.id ? { ...p, items: newItems } : p))
+    );
+    // Keep modal page in sync to avoid flicker
+    setSelectedPageForItems((prev) =>
+      prev && prev.id === page.id ? { ...prev, items: newItems } : prev
+    );
     setIsSending("");
     toast(`تم إضافة ${itemsToAdd.length} صنف إلى الصفحة بنجاح!`, "success");
   };
@@ -259,8 +260,10 @@ const CustomPageManager = ({
       items: updatedItems,
       lastSynced: new Date().toISOString(),
     });
-
-    setCustomPages(await getCustomPages());
+    // Optimistically update local state; real-time snapshot will reconcile
+    setCustomPages((prev) =>
+      prev.map((p) => (p.id === page.id ? { ...p, items: updatedItems } : p))
+    );
     toast("تم مزامنة الصفحة مع المخزون الرئيسي!", "success");
   };
 
@@ -291,8 +294,33 @@ const CustomPageManager = ({
       setItemsByMonth({ ...itemsByMonth, [monthKey]: updatedMainItems });
     }
 
-    setCustomPages(await getCustomPages());
+    // Optimistically update local state; real-time snapshot will reconcile
+    setCustomPages((prev) =>
+      prev.map((p) =>
+        p.id === page.id ? { ...p, items: updatedPageItems } : p
+      )
+    );
     toast("تم تحديث الصنف في الصفحة والمخزون الرئيسي!", "success");
+  };
+
+  // Locally update daily dispense for smoother typing; commit on blur
+  const handleDispenseChange = (pageId, itemIndex, dayNumber, newValue) => {
+    setCustomPages((prev) =>
+      prev.map((p) => {
+        if (p.id !== pageId) return p;
+        const nextItems = p.items.map((it, idx) => {
+          if (idx !== itemIndex) return it;
+          return {
+            ...it,
+            dailyDispense: {
+              ...(it.dailyDispense || {}),
+              [dayNumber]: newValue,
+            },
+          };
+        });
+        return { ...p, items: nextItems };
+      })
+    );
   };
 
   const handleKeyPress = (e) => {
@@ -303,7 +331,6 @@ const CustomPageManager = ({
 
   const removeCustomPage = async (id) => {
     await deleteCustomPage(id);
-    setCustomPages(await getCustomPages());
     toast("تم حذف الصفحة بنجاح!", "success");
   };
 
@@ -314,7 +341,6 @@ const CustomPageManager = ({
 
   const saveEditPageName = async (id) => {
     await updateCustomPage(id, { name: editingPageName });
-    setCustomPages(await getCustomPages());
     setEditingPageId(null);
     setEditingPageName("");
     toast("تم تحديث اسم الصفحة!", "success");
@@ -1047,14 +1073,27 @@ const CustomPageManager = ({
                                                 : Math.floor(
                                                     Number(e.target.value)
                                                   );
+                                            handleDispenseChange(
+                                              page.id,
+                                              itemIdx,
+                                              dayNumber,
+                                              newValue
+                                            );
+                                          }}
+                                          onBlur={() => {
+                                            const latestPage = customPages.find(
+                                              (p) => p.id === page.id
+                                            );
+                                            if (!latestPage) return;
+                                            const latestItem =
+                                              latestPage.items[itemIdx];
+                                            const latestDispense =
+                                              latestItem?.dailyDispense || {};
                                             updateItemInBoth(
-                                              page,
+                                              latestPage,
                                               itemIdx,
                                               "dailyDispense",
-                                              {
-                                                ...item.dailyDispense,
-                                                [dayNumber]: newValue,
-                                              }
+                                              latestDispense
                                             );
                                           }}
                                           className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-blue-50"

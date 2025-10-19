@@ -1,25 +1,13 @@
 import { createDefaultPharmacyAndMigrate } from "./firestoreService";
 import { getAuth } from "firebase/auth";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  writeBatch,
-  doc,
-} from "firebase/firestore";
+import { collection, getDocs, writeBatch, doc } from "firebase/firestore";
 import { db } from "./firebase";
 
 // Migration utility to handle the transition from global to pharmacy-specific inventory
 export const runMigration = async () => {
   try {
-    console.log("🚀 Starting migration to pharmacy-specific inventory...");
-
     // Create default pharmacy and migrate existing data
     const defaultPharmacyId = await createDefaultPharmacyAndMigrate();
-
-    console.log("✅ Migration completed successfully!");
-    console.log("📋 Default pharmacy ID:", defaultPharmacyId);
 
     return {
       success: true,
@@ -50,8 +38,6 @@ export const checkMigrationStatus = async () => {
 // Multi-tenancy migration: Add ownerId to existing data
 export const migrateToMultiTenancy = async () => {
   try {
-    console.log("🚀 Starting multi-tenancy migration...");
-
     const auth = getAuth();
     const currentUser = auth.currentUser;
 
@@ -103,11 +89,6 @@ export const migrateToMultiTenancy = async () => {
 
     if (updateCount > 0) {
       await batch.commit();
-      console.log(
-        `✅ Multi-tenancy migration completed! Updated ${updateCount} documents.`
-      );
-    } else {
-      console.log("✅ Multi-tenancy migration: No updates needed.");
     }
 
     return {

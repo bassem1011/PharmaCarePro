@@ -1,11 +1,10 @@
 // ✅ src/components/StockStatusTable.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useToast } from "../App";
-import { Calendar, Download } from "lucide-react";
+import { Calendar, FileSpreadsheet } from "lucide-react";
 import MonthYearModal from "./ui/MonthYearModal";
+import * as XLSX from 'xlsx';
 
 const StockStatusTable = ({
   items,
@@ -133,30 +132,13 @@ const StockStatusTable = ({
     );
   };
 
-  const exportPDF = () => {
+  const exportExcel = () => {
     try {
-      // Create PDF with basic font support
-      const doc = new jsPDF("landscape", "mm", "a4");
-
-      // Use basic font without external loading
-      doc.setFont("helvetica");
-      doc.setFontSize(8);
-
-      const tableColumn = [
-        "اسم الصنف",
-        "الرصيد الافتتاحي",
-        "الوارد من المصنع",
-        "الوارد من الشركة",
-        "الوارد من المقص",
-        "إجمالي الوارد",
-        "إجمالي الوارد والافتتاحي",
-        "إجمالي المنصرف",
-        "الرصيد الحالي",
-        "سعر الوحدة",
-        "القيمة المتبقية",
-      ];
-
-      const tableRows = items.map((item) => {
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Prepare data for Excel
+      const excelData = items.map(item => {
         const opening = Number(item.opening || 0);
         const aggregatedIncoming = aggregateIncomingBySource(item);
         const totalIncoming = getTotalIncomingFromDaily(item);
@@ -165,117 +147,145 @@ const StockStatusTable = ({
         const unitPrice = Number(item.unitPrice || 0);
         const remainingValue = currentStock * unitPrice;
 
-        return [
-          item.name || "",
-          Math.floor(opening),
-          Math.floor(aggregatedIncoming.factory),
-          Math.floor(aggregatedIncoming.authority),
-          Math.floor(aggregatedIncoming.scissors),
-          Math.floor(totalIncoming),
-          Math.floor(opening + totalIncoming),
-          Math.floor(totalDispensed),
-          Math.floor(currentStock),
-          Math.floor(unitPrice),
-          Math.floor(remainingValue),
-        ];
+        return {
+          "اسم الصنف": item.name || "",
+          "الرصيد الافتتاحي": Math.floor(opening),
+          "الوارد من المصنع": Math.floor(aggregatedIncoming.factory),
+          "الوارد من الشركة": Math.floor(aggregatedIncoming.authority),
+          "الوارد من المقص": Math.floor(aggregatedIncoming.scissors),
+          "إجمالي الوارد": Math.floor(totalIncoming),
+          "إجمالي الوارد والافتتاحي": Math.floor(opening + totalIncoming),
+          "إجمالي المنصرف": Math.floor(totalDispensed),
+          "الرصيد الحالي": Math.floor(currentStock),
+          "سعر الوحدة": Math.floor(unitPrice),
+          "القيمة المتبقية": Math.floor(remainingValue),
+        };
       });
 
-      // Add title in Arabic
-      doc.setFontSize(16);
-      doc.setTextColor(103, 58, 183);
-      doc.text("تقرير حالة المخزون", 148, 15, { align: "center" });
-
-      doc.setFontSize(12);
-      doc.setTextColor(75, 85, 99);
+      // Create worksheet with RTL support
+      const ws = XLSX.utils.json_to_sheet(excelData, { origin: 'A3' });
+      
+      // Add title and date
       const monthNames = [
-        "يناير",
-        "فبراير",
-        "مارس",
-        "أبريل",
-        "مايو",
-        "يونيو",
-        "يوليو",
-        "أغسطس",
-        "سبتمبر",
-        "أكتوبر",
-        "نوفمبر",
-        "ديسمبر",
+        "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+        "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
       ];
-      doc.text(`الشهر: ${monthNames[month]} ${year}`, 148, 25, {
-        align: "center",
-      });
-      doc.text(`التاريخ: ${new Date().toLocaleDateString("en-US")}`, 148, 35, {
-        align: "center",
-      });
-
-      // Create table with Arabic headers
-      autoTable(doc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 45,
-        styles: {
-          fontSize: 8,
-          cellPadding: 2,
-          halign: "right",
-          font: "helvetica",
-          textColor: [55, 65, 81],
-        },
-        headStyles: {
-          fillColor: [103, 58, 183],
-          textColor: 255,
-          fontStyle: "bold",
-          halign: "center",
-          fontSize: 9,
-        },
-        alternateRowStyles: {
-          fillColor: [249, 250, 251],
-        },
-        columnStyles: {
-          0: { cellWidth: 25, fontStyle: "bold" }, // اسم الصنف
-          1: { cellWidth: 15 }, // الرصيد الافتتاحي
-          2: { cellWidth: 15 }, // الوارد من المصنع
-          3: { cellWidth: 15 }, // الوارد من الشركة
-          4: { cellWidth: 15 }, // الوارد من المقص
-          5: { cellWidth: 15 }, // إجمالي الوارد
-          6: { cellWidth: 18 }, // إجمالي الوارد والافتتاحي
-          7: { cellWidth: 15 }, // إجمالي المنصرف
-          8: { cellWidth: 15 }, // الرصيد الحالي
-          9: { cellWidth: 15 }, // سعر الوحدة
-          10: { cellWidth: 15 }, // القيمة المتبقية
-        },
-        margin: { top: 45, right: 5, bottom: 15, left: 5 },
-        didDrawPage: function (data) {
-          // Add page numbers in Arabic
-          const pageCount = doc.internal.getNumberOfPages();
-          for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            doc.setFontSize(8);
-            doc.setTextColor(107, 114, 128);
-            doc.text(
-              `صفحة ${i} من ${pageCount}`,
-              doc.internal.pageSize.width - 15,
-              doc.internal.pageSize.height - 8,
-              { align: "center" }
-            );
+      const title = `تقرير حالة المخزون - ${monthNames[month]} ${year}`;
+      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`;
+      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' });
+      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: 'A2' });
+      
+      // Calculate total values for summary
+      const totalItems = excelData.length;
+      const totalRemainingValue = excelData.reduce((sum, item) => 
+        sum + (Number(item["القيمة المتبقية"]) || 0), 0);
+      const totalCurrentStock = excelData.reduce((sum, item) => 
+        sum + (Number(item["الرصيد الحالي"]) || 0), 0);
+      
+      // Add summary statistics
+      const summaryStartRow = excelData.length + 5;
+      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], { origin: `A${summaryStartRow}` });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الأصناف", totalItems]], { origin: `A${summaryStartRow + 1}` });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الرصيد الحالي", totalCurrentStock]], { origin: `A${summaryStartRow + 2}` });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي القيمة المتبقية", totalRemainingValue]], { origin: `A${summaryStartRow + 3}` });
+      
+      // Apply styles using cell references
+      // Style for title
+      ws['A1'] = { v: title, t: 's', s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } } };
+      ws['A2'] = { v: dateStr, t: 's', s: { font: { color: { rgb: "666666" }, sz: 12 } } };
+      
+      // Style for headers (row 3)
+      const headerStyle = { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "6D4CB3" } }, alignment: { horizontal: 'center' } };
+      const headerRow = XLSX.utils.decode_range(ws['!ref']).s.r + 2; // Get the header row (0-indexed)
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const headerCell = XLSX.utils.encode_cell({ r: headerRow, c: C });
+        if (!ws[headerCell]) continue;
+        ws[headerCell].s = headerStyle;
+      }
+      
+      // Style for data cells - add zebra striping
+      for (let R = headerRow + 1; R <= range.e.r; ++R) {
+        const rowStyle = R % 2 ? { fill: { fgColor: { rgb: "F9F9F9" } } } : {};
+        
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cell = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[cell]) continue;
+          
+          // Special formatting for numeric columns
+          if (C > 0) { // Skip the first column (item name)
+            ws[cell].s = { 
+              ...rowStyle,
+              alignment: { horizontal: 'center' },
+              font: { color: { rgb: "333333" } },
+              numFmt: '#,##0' // Add thousand separators
+            };
+          } else {
+            ws[cell].s = { ...rowStyle, font: { bold: true } };
           }
-        },
-        didParseCell: function (data) {
-          // Add better cell styling
-          if (data.row.index === 0) {
-            data.cell.styles.fontStyle = "bold";
-          }
-        },
-      });
-
-      // Save the PDF with Arabic filename
-      const fileName = `تقرير_حالة_المخزون_${monthNames[month]}_${year}.pdf`;
-      doc.save(fileName);
-      toast("تم تحميل التقرير بنجاح", "success");
+        }
+      }
+      
+      // Style for summary section
+      ws[`A${summaryStartRow}`] = { 
+        v: "ملخص الإحصائيات", 
+        t: 's', 
+        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 }, 
+        fill: { fgColor: { rgb: "EFEFEF" } } }
+      };
+      
+      // Style for summary rows
+      for (let i = 1; i <= 3; i++) {
+        const labelCell = `A${summaryStartRow + i}`;
+        const valueCell = `B${summaryStartRow + i}`;
+        
+        if (ws[labelCell]) {
+          ws[labelCell].s = { font: { bold: true }, fill: { fgColor: { rgb: "F5F5F5" } } };
+        }
+        
+        if (ws[valueCell]) {
+          ws[valueCell].s = { 
+            font: { bold: true, color: { rgb: "4F3FB6" } }, 
+            alignment: { horizontal: 'center' },
+            numFmt: '#,##0' // Add thousand separators
+          };
+        }
+      }
+      
+      // Set column widths for better appearance
+      ws['!cols'] = [
+        { wch: 30 }, // اسم الصنف
+        { wch: 18 }, // الرصيد الافتتاحي
+        { wch: 18 }, // الوارد من المصنع
+        { wch: 18 }, // الوارد من الشركة
+        { wch: 18 }, // الوارد من المقص
+        { wch: 18 }, // إجمالي الوارد
+        { wch: 22 }, // إجمالي الوارد والافتتاحي
+        { wch: 18 }, // إجمالي المنصرف
+        { wch: 18 }, // الرصيد الحالي
+        { wch: 18 }, // سعر الوحدة
+        { wch: 18 }, // القيمة المتبقية
+      ];
+      
+      // Set RTL direction for the worksheet
+      ws['!rightToLeft'] = true;
+      
+      // Add to workbook
+      XLSX.utils.book_append_sheet(wb, ws, "تقرير المخزون");
+      
+      // Generate Excel file
+      const fileName = `تقرير_حالة_المخزون_${monthNames[month]}_${year}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      toast("تم تحميل ملف الإكسل بنجاح", "success");
     } catch (error) {
-      console.error("PDF export error:", error);
-      toast("فشل في تحميل التقرير", "error");
+      console.error("Excel export error:", error);
+      toast("فشل في تحميل ملف الإكسل", "error");
     }
   };
+
+
 
   return (
     <div className="space-y-6">
@@ -308,11 +318,11 @@ const StockStatusTable = ({
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={exportPDF}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-xl font-bold hover:from-blue-600 hover:to-cyan-700 transition-all duration-300 shadow-lg flex items-center gap-2"
+              onClick={exportExcel}
+              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-600 hover:to-indigo-700 transition-all duration-300 shadow-lg flex items-center gap-2"
             >
-              <Download className="w-5 h-5" />
-              <span>تحميل PDF</span>
+              <FileSpreadsheet className="w-5 h-5" />
+              <span>تحميل Excel</span>
             </motion.button>
           </div>
         </div>

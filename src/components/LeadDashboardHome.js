@@ -7,18 +7,7 @@ import Skeleton from "./ui/Skeleton";
 import { motion } from "framer-motion";
 import { getAuth } from "firebase/auth";
 import { useAuthState } from "react-firebase-hooks/auth";
-import {
-  Store,
-  Users,
-  Calendar,
-  BarChart3,
-  Settings,
-  ArrowRight,
-  TrendingUp,
-  UserCheck,
-  UserX,
-  Crown,
-} from "lucide-react";
+import { Store, Users, Calendar, ArrowRight, Crown } from "lucide-react";
 
 function getTodayDateString() {
   const d = new Date();

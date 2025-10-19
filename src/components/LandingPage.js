@@ -1177,7 +1177,7 @@ const LandingPage = ({ goToLogin, goToSignUp }) => {
               <p className="text-gray-400">
                 &copy; 2024 فارماكير برو. جميع الحقوق محفوظة.
               </p>
-              <div className="flex items-center gap-6 text-sm text-gray-500">
+              {/* <div className="flex items-center gap-6 text-sm text-gray-500">
                 <a
                   href="#"
                   className="hover:text-fuchsia-400 transition-colors"
@@ -1196,7 +1196,7 @@ const LandingPage = ({ goToLogin, goToSignUp }) => {
                 >
                   خريطة الموقع
                 </a>
-              </div>
+              </div> */}
             </div>
           </div>
         </div>

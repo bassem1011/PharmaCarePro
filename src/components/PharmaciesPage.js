@@ -11,7 +11,7 @@ import {
 import { db } from "../utils/firebase";
 import { getAuth } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
-import Spinner from "./ui/Spinner";
+
 import Skeleton from "./ui/Skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trash2, AlertTriangle } from "lucide-react";
@@ -74,11 +74,7 @@ export default function PharmaciesPage() {
     setIsSubmitting(true);
 
     try {
-      console.log("Creating pharmacy with name:", newName.trim());
-      console.log("Current user:", auth.currentUser);
-
       const result = await createPharmacy(newName.trim());
-      console.log("Pharmacy created successfully:", result);
 
       setNewName("");
       setShowForm(false);
@@ -122,22 +118,16 @@ export default function PharmaciesPage() {
     setDeleteError("");
 
     try {
-      // Debug: Log current user info
+      // Get current user info
       const currentUser = auth.currentUser;
-      console.log("Current user:", currentUser);
-      console.log("Current user UID:", currentUser?.uid);
 
       if (!currentUser) {
         setDeleteError("يجب تسجيل الدخول كمسؤول");
         return;
       }
 
-      // Debug: Get current user's role
+      // Get current user's role
       const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
-      console.log(
-        "Current user document:",
-        currentUserDoc.exists() ? currentUserDoc.data() : "Not found"
-      );
 
       if (!currentUserDoc.exists()) {
         setDeleteError("بيانات المستخدم غير موجودة");
@@ -145,8 +135,6 @@ export default function PharmaciesPage() {
       }
 
       const currentUserData = currentUserDoc.data();
-      console.log("Current user role:", currentUserData.role);
-      console.log("Current user data:", currentUserData);
 
       // First check if the pharmacy exists and get its data
       const pharmacyDoc = await getDoc(doc(db, "pharmacies", pharmacyId));
@@ -156,10 +144,6 @@ export default function PharmaciesPage() {
       }
 
       const pharmacyData = pharmacyDoc.data();
-      console.log("Pharmacy data:", pharmacyData);
-      console.log("Pharmacy ownerId:", pharmacyData.ownerId);
-      console.log("Current user UID:", currentUser.uid);
-      console.log("Ownership check:", pharmacyData.ownerId === currentUser.uid);
 
       // Check if the current user is a lead and owns this pharmacy
       if (currentUserData.role !== "lead") {

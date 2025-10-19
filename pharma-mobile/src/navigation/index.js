@@ -1,2 +1,0 @@
-// Navigation directory
-export {};

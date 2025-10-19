@@ -71,10 +71,6 @@ export async function createDefaultPharmacyAndMigrate(ownerId = null) {
     let defaultPharmacyId;
     if (existingDefault) {
       defaultPharmacyId = existingDefault.id;
-      console.log(
-        "Default pharmacy already exists for owner:",
-        defaultPharmacyId
-      );
     } else {
       // Create default pharmacy for this owner
       const defaultPharmacyRef = await addDoc(collection(db, "pharmacies"), {
@@ -84,7 +80,6 @@ export async function createDefaultPharmacyAndMigrate(ownerId = null) {
         createdAt: new Date().toISOString(),
       });
       defaultPharmacyId = defaultPharmacyRef.id;
-      console.log("Created default pharmacy for owner:", defaultPharmacyId);
     }
 
     // Migrate existing global monthlyStock data to default pharmacy (only for this owner)
@@ -93,9 +88,6 @@ export async function createDefaultPharmacyAndMigrate(ownerId = null) {
     );
 
     if (globalMonthlyStockSnap.size > 0) {
-      console.log(
-        "Migrating global inventory data to default pharmacy for owner..."
-      );
 
       const batch = writeBatch(db);
 
@@ -118,7 +110,6 @@ export async function createDefaultPharmacyAndMigrate(ownerId = null) {
       });
 
       await batch.commit();
-      console.log("Migration completed successfully for owner");
     }
 
     return defaultPharmacyId;

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   collection,
   getDocs,
   doc,
-  updateDoc,
   setDoc,
   getDoc,
   query,
@@ -15,7 +14,6 @@ import { db } from "../utils/firebase";
 import { getAuth } from "firebase/auth";
 import { Calendar, CheckCircle, XCircle, Clock, Building2 } from "lucide-react";
 import Spinner from "./ui/Spinner";
-import Skeleton from "./ui/Skeleton";
 
 function getTodayDateString() {
   const d = new Date();
