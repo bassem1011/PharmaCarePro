@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BarChart3, Calendar, FileSpreadsheet } from "lucide-react";
-import * as XLSX from 'xlsx';
+import * as XLSX from "xlsx";
 
 const ConsumptionReport = ({
   items,
@@ -11,12 +11,25 @@ const ConsumptionReport = ({
   year,
   handleMonthYearChange,
   itemsByMonth,
+  pharmacySettings,
 }) => {
   const [showMonthYearModal, setShowMonthYearModal] = useState(false);
 
   // Calculate consumption from daily dispensed data
   const reportData = useMemo(() => {
-    
+    console.log("ConsumptionReport debug data:", {
+      items: items,
+      itemsByMonth: itemsByMonth,
+      pharmacySettings: pharmacySettings,
+      month: month,
+      year: year,
+    });
+
+    // Debug: Show available month keys
+    console.log(
+      "Available month keys in itemsByMonth:",
+      Object.keys(itemsByMonth)
+    );
 
     if (!items || !Array.isArray(items) || !itemsByMonth) {
       console.warn("Missing required data for report calculation");
@@ -62,6 +75,10 @@ const ConsumptionReport = ({
     };
 
     const months = getLastThreeMonths();
+    console.log(
+      "Requested months for consumption report:",
+      months.map((m) => m.key)
+    );
 
     // Filter valid items
     const validItems = items.filter(
@@ -72,8 +89,6 @@ const ConsumptionReport = ({
         typeof item.name === "string" &&
         item.name.trim() !== ""
     );
-
-    
 
     // Calculate consumption for each item from daily dispensed data
     const itemsWithConsumption = validItems.map((item) => {
@@ -92,13 +107,100 @@ const ConsumptionReport = ({
 
           // Calculate total dispensed for this specific month
           if (monthItem && monthItem.dailyDispense) {
+            console.log(`Debug consumption for ${item.name} in ${monthKey}:`, {
+              monthItem: monthItem,
+              dailyDispense: monthItem.dailyDispense,
+              pharmacySettings: pharmacySettings,
+            });
+
+            // Debug: Show the actual dailyDispense values
+            const dailyValues = Object.values(monthItem.dailyDispense);
+            console.log(`DailyDispense values for ${item.name}:`, dailyValues);
+            console.log(`First value details:`, {
+              value: dailyValues[0],
+              type: typeof dailyValues[0],
+              isNumber: typeof dailyValues[0] === "number",
+              isObject: typeof dailyValues[0] === "object",
+              isNaN: isNaN(dailyValues[0]),
+            });
+
             const monthDispensed = Object.values(
               monthItem.dailyDispense
             ).reduce((sum, val) => {
-              return sum + Math.floor(Number(val || 0));
+              console.log(`Processing value:`, { val, sum, type: typeof val });
+
+              // Use simple calculation for pharmacies without the feature
+              // Default to simple calculation if pharmacySettings is undefined
+              if (
+                !pharmacySettings ||
+                !pharmacySettings.enableDispenseCategories
+              ) {
+                // Handle both simple numbers and objects (fallback for undefined settings)
+                if (typeof val === "object" && val !== null) {
+                  // If it's an object, try to extract values (fallback for when settings are undefined)
+                  if (val.patient !== undefined && val.scissors !== undefined) {
+                    const patientNum = Number(val.patient);
+                    const scissorsNum = Number(val.scissors);
+                    const result =
+                      sum +
+                      (isNaN(patientNum) ? 0 : patientNum) +
+                      (isNaN(scissorsNum) ? 0 : scissorsNum);
+                    console.log(
+                      `Object fallback calculation: ${JSON.stringify(
+                        val
+                      )} -> patient:${patientNum} + scissors:${scissorsNum} = ${result}`
+                    );
+                    return result;
+                  } else if (val.quantity !== undefined) {
+                    const num = Number(val.quantity);
+                    const result = sum + (isNaN(num) ? 0 : num);
+                    console.log(
+                      `Quantity fallback calculation: ${JSON.stringify(
+                        val
+                      )} -> ${num} -> ${result}`
+                    );
+                    return result;
+                  }
+                }
+
+                const num = Number(val);
+                const result = sum + (isNaN(num) ? 0 : num);
+                console.log(
+                  `Simple calculation: ${val} -> ${num} -> ${result}`
+                );
+                return result;
+              }
+
+              // Use advanced calculation for pharmacies with the feature
+              if (typeof val === "object" && val.patient !== undefined) {
+                // New structure: { patient: 5, scissors: 3 }
+                const patientNum = Number(val.patient);
+                const scissorsNum = Number(val.scissors);
+                return (
+                  sum +
+                  (isNaN(patientNum) ? 0 : patientNum) +
+                  (isNaN(scissorsNum) ? 0 : scissorsNum)
+                );
+              } else if (
+                typeof val === "object" &&
+                val.quantity !== undefined
+              ) {
+                // Old structure: { quantity: 5, category: "patient" }
+                const num = Number(val.quantity);
+                return sum + (isNaN(num) ? 0 : num);
+              } else {
+                // Simple structure: 5
+                const num = Number(val);
+                return sum + (isNaN(num) ? 0 : num);
+              }
             }, 0);
+            console.log(
+              `Final monthDispensed for ${item.name} in ${monthKey}:`,
+              monthDispensed
+            );
             return monthDispensed;
           }
+          console.log(`No data found for ${item.name} in ${monthKey}`);
           return 0; // Return 0 if no data for this month
         });
 
@@ -137,8 +239,6 @@ const ConsumptionReport = ({
       }
     });
 
-    
-
     // Calculate summary statistics
     const totalItems = itemsWithConsumption.length;
     const averageConsumption =
@@ -171,89 +271,128 @@ const ConsumptionReport = ({
     try {
       // Create workbook
       const wb = XLSX.utils.book_new();
-      
+
       // Prepare data for Excel
-      const excelData = reportData.items.map(item => {
+      const excelData = reportData.items.map((item) => {
         return {
           "اسم الصنف": item.name || "",
           [reportData.months[0].name]: Math.floor(item.consumptions[0] || 0),
           [reportData.months[1].name]: Math.floor(item.consumptions[1] || 0),
           [reportData.months[2].name]: Math.floor(item.consumptions[2] || 0),
-          "المتوسط": Math.floor(item.average || 0)
+          المتوسط: Math.floor(item.average || 0),
         };
       });
 
       // Create worksheet with RTL support
-      const ws = XLSX.utils.json_to_sheet(excelData, { origin: 'A3' });
-      
+      const ws = XLSX.utils.json_to_sheet(excelData, { origin: "A3" });
+
       // Add title and date
       const title = `تقرير متوسط الاستهلاك - آخر 3 أشهر (${reportData.months[2].name})`;
-      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`;
-      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' });
-      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: 'A2' });
-      
+      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString(
+        "ar-SA"
+      )}`;
+      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: "A1" });
+      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: "A2" });
+
       // Add summary statistics
       const summaryStartRow = excelData.length + 5;
-      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], { origin: `A${summaryStartRow}` });
-      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الأصناف", reportData.summary.totalItems]], { origin: `A${summaryStartRow + 1}` });
-      XLSX.utils.sheet_add_aoa(ws, [["متوسط الاستهلاك", reportData.summary.averageConsumption]], { origin: `A${summaryStartRow + 2}` });
-      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الشهر الحالي", reportData.summary.currentMonthTotal]], { origin: `A${summaryStartRow + 3}` });
-      
+      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], {
+        origin: `A${summaryStartRow}`,
+      });
+      XLSX.utils.sheet_add_aoa(
+        ws,
+        [["إجمالي الأصناف", reportData.summary.totalItems]],
+        { origin: `A${summaryStartRow + 1}` }
+      );
+      XLSX.utils.sheet_add_aoa(
+        ws,
+        [["متوسط الاستهلاك", reportData.summary.averageConsumption]],
+        { origin: `A${summaryStartRow + 2}` }
+      );
+      XLSX.utils.sheet_add_aoa(
+        ws,
+        [["إجمالي الشهر الحالي", reportData.summary.currentMonthTotal]],
+        { origin: `A${summaryStartRow + 3}` }
+      );
+
       // Apply styles using cell references
       // Style for title
-      ws['A1'] = { v: title, t: 's', s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } } };
-      ws['A2'] = { v: dateStr, t: 's', s: { font: { color: { rgb: "666666" }, sz: 12 } } };
-      
+      ws["A1"] = {
+        v: title,
+        t: "s",
+        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } },
+      };
+      ws["A2"] = {
+        v: dateStr,
+        t: "s",
+        s: { font: { color: { rgb: "666666" }, sz: 12 } },
+      };
+
       // Style for headers (row 3)
-      const headerStyle = { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "6D4CB3" } }, alignment: { horizontal: 'center' } };
-      const headerRow = XLSX.utils.decode_range(ws['!ref']).s.r + 2; // Get the header row (0-indexed)
-      const range = XLSX.utils.decode_range(ws['!ref']);
-      
+      const headerStyle = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "6D4CB3" } },
+        alignment: { horizontal: "center" },
+      };
+      const headerRow = XLSX.utils.decode_range(ws["!ref"]).s.r + 2; // Get the header row (0-indexed)
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+
       for (let C = range.s.c; C <= range.e.c; ++C) {
         const headerCell = XLSX.utils.encode_cell({ r: headerRow, c: C });
         if (!ws[headerCell]) continue;
         ws[headerCell].s = headerStyle;
       }
-      
+
       // Style for summary section
-      ws[`A${summaryStartRow}`] = { 
-        v: "ملخص الإحصائيات", 
-        t: 's', 
-        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 }, 
-        fill: { fgColor: { rgb: "EFEFEF" } } }
+      ws[`A${summaryStartRow}`] = {
+        v: "ملخص الإحصائيات",
+        t: "s",
+        s: {
+          font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 },
+          fill: { fgColor: { rgb: "EFEFEF" } },
+        },
       };
-      
+
       // Style for summary rows
       for (let i = 1; i <= 3; i++) {
         const labelCell = `A${summaryStartRow + i}`;
         const valueCell = `B${summaryStartRow + i}`;
-        
+
         if (ws[labelCell]) {
-          ws[labelCell].s = { font: { bold: true }, fill: { fgColor: { rgb: "F5F5F5" } } };
+          ws[labelCell].s = {
+            font: { bold: true },
+            fill: { fgColor: { rgb: "F5F5F5" } },
+          };
         }
-        
+
         if (ws[valueCell]) {
-          ws[valueCell].s = { font: { bold: true, color: { rgb: "4F3FB6" } }, alignment: { horizontal: 'center' } };
+          ws[valueCell].s = {
+            font: { bold: true, color: { rgb: "4F3FB6" } },
+            alignment: { horizontal: "center" },
+          };
         }
       }
-      
+
       // Set column widths for better appearance
-      ws['!cols'] = [
+      ws["!cols"] = [
         { wch: 30 }, // اسم الصنف
         { wch: 18 }, // الشهر الأول
         { wch: 18 }, // الشهر الثاني
         { wch: 18 }, // الشهر الثالث
         { wch: 18 }, // المتوسط
       ];
-      
+
       // Set RTL direction for the worksheet
-      ws['!rightToLeft'] = true;
-      
+      ws["!rightToLeft"] = true;
+
       // Add to workbook
       XLSX.utils.book_append_sheet(wb, ws, "تقرير الاستهلاك");
-      
+
       // Generate Excel file
-      const fileName = `تقرير_متوسط_الاستهلاك_${reportData.months[2].name.replace(" ", "_")}.xlsx`;
+      const fileName = `تقرير_متوسط_الاستهلاك_${reportData.months[2].name.replace(
+        " ",
+        "_"
+      )}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (error) {
       console.error("Excel export error:", error);

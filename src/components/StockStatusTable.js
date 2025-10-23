@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../App";
 import { Calendar, FileSpreadsheet } from "lucide-react";
 import MonthYearModal from "./ui/MonthYearModal";
-import * as XLSX from 'xlsx';
+import * as XLSX from "xlsx";
+import { getPharmacySettings } from "../utils/firestoreService";
 
 const StockStatusTable = ({
   items,
@@ -12,9 +13,111 @@ const StockStatusTable = ({
   month,
   year,
   handleMonthYearChange,
+  pharmacyId,
 }) => {
   const toast = useToast();
   const [showMonthYearModal, setShowMonthYearModal] = useState(false);
+  const [pharmacySettings, setPharmacySettings] = useState(null);
+
+  // Load pharmacy settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!pharmacyId) {
+        return;
+      }
+      try {
+        const settings = await getPharmacySettings(pharmacyId);
+        console.log(
+          "StockStatusTable: Loaded pharmacy settings for pharmacy",
+          pharmacyId,
+          ":",
+          settings
+        );
+        console.log(
+          "StockStatusTable: enableDispenseCategories:",
+          settings?.enableDispenseCategories
+        );
+        setPharmacySettings(settings);
+      } catch (error) {
+        console.error("Error loading pharmacy settings:", error);
+      }
+    };
+    loadSettings();
+  }, [pharmacyId]);
+
+  // Helper function to calculate dispensed values (for pricing)
+  const calculateDispensedValues = (item) => {
+    if (!item.dailyDispense) return { patient: 0, scissors: 0, total: 0 };
+
+    const unitPrice = Number(item.unitPrice || 0);
+    const dispensedData = calculateDispensed(item);
+
+    return {
+      patient: dispensedData.patient * unitPrice,
+      scissors: dispensedData.scissors * unitPrice,
+      total: dispensedData.total * unitPrice,
+    };
+  };
+
+  // Helper function to calculate dispensed amounts
+  const calculateDispensed = (item) => {
+    if (!item.dailyDispense) return { patient: 0, scissors: 0, total: 0 };
+
+    console.log(
+      "Calculating dispensed for item:",
+      item.name,
+      "dailyDispense:",
+      item.dailyDispense
+    );
+
+    const patientDispensed = Object.values(item.dailyDispense).reduce(
+      (sum, val) => {
+        if (typeof val === "object" && val.patient !== undefined) {
+          // New structure: { patient: 5, scissors: 3 }
+          const num = Number(val.patient);
+          return sum + (isNaN(num) ? 0 : num);
+        } else if (typeof val === "object" && val.quantity !== undefined) {
+          // Old structure: { quantity: 5, category: "patient" }
+          const num = val.category === "patient" ? Number(val.quantity) : 0;
+          return sum + (isNaN(num) ? 0 : num);
+        } else {
+          // Simple number, default to patient
+          const num = Number(val);
+          return sum + (isNaN(num) ? 0 : num);
+        }
+      },
+      0
+    );
+
+    const scissorsDispensed = Object.values(item.dailyDispense).reduce(
+      (sum, val) => {
+        if (typeof val === "object" && val.scissors !== undefined) {
+          // New structure: { patient: 5, scissors: 3 }
+          const num = Number(val.scissors);
+          return sum + (isNaN(num) ? 0 : num);
+        } else if (typeof val === "object" && val.quantity !== undefined) {
+          // Old structure: { quantity: 5, category: "scissors" }
+          const num = val.category === "scissors" ? Number(val.quantity) : 0;
+          return sum + (isNaN(num) ? 0 : num);
+        } else {
+          // Simple number, default to patient (so scissors = 0)
+          return sum;
+        }
+      },
+      0
+    );
+
+    const result = {
+      patient: isNaN(patientDispensed) ? 0 : Math.floor(patientDispensed),
+      scissors: isNaN(scissorsDispensed) ? 0 : Math.floor(scissorsDispensed),
+      total: isNaN(patientDispensed + scissorsDispensed)
+        ? 0
+        : Math.floor(patientDispensed + scissorsDispensed),
+    };
+
+    console.log("calculateDispensed result:", result);
+    return result;
+  };
 
   // Memoized calculations to avoid repeated computations
   const memoizedCalculations = useMemo(() => {
@@ -35,12 +138,8 @@ const StockStatusTable = ({
             0
           )
         );
-        const totalDispensed = Math.floor(
-          Object.values(item.dailyDispense || {}).reduce(
-            (sum, val) => sum + (Number(val) || 0),
-            0
-          )
-        );
+        const dispensedData = calculateDispensed(item);
+        const totalDispensed = dispensedData.total;
         const currentStock =
           Math.floor(Number(item.opening || 0)) +
           totalIncoming -
@@ -66,11 +165,8 @@ const StockStatusTable = ({
 
   const getTotal = (item) => {
     if (!item) return 0;
-    const total = Object.values(item.dailyDispense || {}).reduce(
-      (sum, val) => sum + (Number(val) || 0),
-      0
-    );
-    return Math.floor(Number(total));
+    const dispensedData = calculateDispensed(item);
+    return dispensedData.total;
   };
 
   const getTotalIncoming = (item) => {
@@ -126,19 +222,17 @@ const StockStatusTable = ({
   // Helper function to get total dispensed from daily data
   const getTotalDispensedFromDaily = (item) => {
     if (!item.dailyDispense) return 0;
-    return Object.values(item.dailyDispense).reduce(
-      (acc, val) => acc + Number(val || 0),
-      0
-    );
+    const dispensedData = calculateDispensed(item);
+    return dispensedData.total;
   };
 
   const exportExcel = () => {
     try {
       // Create workbook
       const wb = XLSX.utils.book_new();
-      
+
       // Prepare data for Excel
-      const excelData = items.map(item => {
+      const excelData = items.map((item) => {
         const opening = Number(item.opening || 0);
         const aggregatedIncoming = aggregateIncomingBySource(item);
         const totalIncoming = getTotalIncomingFromDaily(item);
@@ -147,114 +241,247 @@ const StockStatusTable = ({
         const unitPrice = Number(item.unitPrice || 0);
         const remainingValue = currentStock * unitPrice;
 
-        return {
+        const dispensedData = calculateDispensed(item);
+
+        const baseData = {
           "اسم الصنف": item.name || "",
+          "رقم الصفحة": item.pageNumber || "",
           "الرصيد الافتتاحي": Math.floor(opening),
           "الوارد من المصنع": Math.floor(aggregatedIncoming.factory),
           "الوارد من الشركة": Math.floor(aggregatedIncoming.authority),
           "الوارد من المقص": Math.floor(aggregatedIncoming.scissors),
           "إجمالي الوارد": Math.floor(totalIncoming),
           "إجمالي الوارد والافتتاحي": Math.floor(opening + totalIncoming),
-          "إجمالي المنصرف": Math.floor(totalDispensed),
-          "الرصيد الحالي": Math.floor(currentStock),
-          "سعر الوحدة": Math.floor(unitPrice),
-          "القيمة المتبقية": Math.floor(remainingValue),
         };
+
+        const dispensedValues = calculateDispensedValues(item);
+
+        if (pharmacySettings?.enableDispenseCategories) {
+          return {
+            ...baseData,
+            // Dispensed quantities (after incoming and opening)
+            [pharmacySettings?.dispenseCategories?.patient || "منصرف للمريض"]:
+              Math.floor(dispensedData.patient),
+            [pharmacySettings?.dispenseCategories?.scissors || "منصرف للمقص"]:
+              Math.floor(dispensedData.scissors),
+            "إجمالي المنصرف": Math.floor(dispensedData.total),
+            "الرصيد المتبقى": Math.floor(currentStock),
+            // Prices at the end
+            "سعر الوحدة": Number(unitPrice.toFixed(2)),
+            [`قيمة ${
+              pharmacySettings?.dispenseCategories?.patient || "منصرف للمريض"
+            }`]: Number(dispensedValues.patient.toFixed(2)),
+            [`قيمة ${
+              pharmacySettings?.dispenseCategories?.scissors || "منصرف للمقص"
+            }`]: Number(dispensedValues.scissors.toFixed(2)),
+            "القيمة المتبقية": Number(remainingValue.toFixed(2)),
+          };
+        } else {
+          return {
+            ...baseData,
+            // Dispensed quantities (after incoming and opening)
+            "إجمالي المنصرف": Math.floor(totalDispensed),
+            "الرصيد المتبقى": Math.floor(currentStock),
+            // Prices at the end
+            "سعر الوحدة": Number(unitPrice.toFixed(2)),
+            "قيمة المنصرف": Number(dispensedValues.total.toFixed(2)),
+            "القيمة المتبقية": Number(remainingValue.toFixed(2)),
+          };
+        }
       });
 
       // Create worksheet with RTL support
-      const ws = XLSX.utils.json_to_sheet(excelData, { origin: 'A3' });
-      
+      const ws = XLSX.utils.json_to_sheet(excelData, { origin: "A3" });
+
       // Add title and date
       const monthNames = [
-        "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-        "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+        "يناير",
+        "فبراير",
+        "مارس",
+        "أبريل",
+        "مايو",
+        "يونيو",
+        "يوليو",
+        "أغسطس",
+        "سبتمبر",
+        "أكتوبر",
+        "نوفمبر",
+        "ديسمبر",
       ];
       const title = `تقرير حالة المخزون - ${monthNames[month]} ${year}`;
-      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`;
-      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' });
-      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: 'A2' });
-      
+      const dateStr = `تاريخ التقرير: ${new Date().toLocaleDateString(
+        "ar-SA"
+      )}`;
+      XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: "A1" });
+      XLSX.utils.sheet_add_aoa(ws, [[dateStr]], { origin: "A2" });
+
       // Calculate total values for summary
       const totalItems = excelData.length;
-      const totalRemainingValue = excelData.reduce((sum, item) => 
-        sum + (Number(item["القيمة المتبقية"]) || 0), 0);
-      const totalCurrentStock = excelData.reduce((sum, item) => 
-        sum + (Number(item["الرصيد الحالي"]) || 0), 0);
-      
+      const totalRemainingValue = excelData.reduce(
+        (sum, item) => sum + (Number(item["القيمة المتبقية"]) || 0),
+        0
+      );
+      const totalCurrentStock = excelData.reduce(
+        (sum, item) => sum + (Number(item["الرصيد الحالي"]) || 0),
+        0
+      );
+
+      // Calculate conditional summary statistics based on pharmacy settings
+      let totalPatientDispensedValue = 0;
+      let totalScissorsDispensedValue = 0;
+      let totalDispensedValue = 0;
+
+      if (pharmacySettings?.enableDispenseCategories) {
+        // For enabled pharmacies: calculate patient and scissors dispensed values
+        excelData.forEach((item) => {
+          const patientValue = Number(item["قيمة منصرف للمريض"]) || 0;
+          const scissorsValue = Number(item["قيمة منصرف للمقص"]) || 0;
+
+          totalPatientDispensedValue += patientValue;
+          totalScissorsDispensedValue += scissorsValue;
+          totalDispensedValue += patientValue + scissorsValue;
+        });
+      } else {
+        // For disabled pharmacies: calculate simple dispensed value
+        excelData.forEach((item) => {
+          const dispensedValue = Number(item["قيمة المنصرف"]) || 0;
+          totalDispensedValue += dispensedValue;
+        });
+      }
+
       // Add summary statistics
       const summaryStartRow = excelData.length + 5;
-      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], { origin: `A${summaryStartRow}` });
-      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الأصناف", totalItems]], { origin: `A${summaryStartRow + 1}` });
-      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الرصيد الحالي", totalCurrentStock]], { origin: `A${summaryStartRow + 2}` });
-      XLSX.utils.sheet_add_aoa(ws, [["إجمالي القيمة المتبقية", totalRemainingValue]], { origin: `A${summaryStartRow + 3}` });
-      
+      XLSX.utils.sheet_add_aoa(ws, [["ملخص الإحصائيات"]], {
+        origin: `A${summaryStartRow}`,
+      });
+      XLSX.utils.sheet_add_aoa(ws, [["إجمالي الأصناف", totalItems]], {
+        origin: `A${summaryStartRow + 1}`,
+      });
+
+      // Add conditional summary statistics
+      if (pharmacySettings?.enableDispenseCategories) {
+        // For enabled pharmacies: show patient value, scissors value, total value, and remaining value
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى قيمه المنصرف للمرضى", totalPatientDispensedValue]],
+          { origin: `A${summaryStartRow + 2}` }
+        );
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى قيمه المنصرف للمقصه", totalScissorsDispensedValue]],
+          { origin: `A${summaryStartRow + 3}` }
+        );
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى قيمه المنصرف الكلى مجموع الاثنين", totalDispensedValue]],
+          { origin: `A${summaryStartRow + 4}` }
+        );
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى المتبقى بالصيدليه", totalRemainingValue]],
+          { origin: `A${summaryStartRow + 5}` }
+        );
+      } else {
+        // For disabled pharmacies: show dispensed value and remaining value
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى قيمه المنصرف", totalDispensedValue]],
+          { origin: `A${summaryStartRow + 2}` }
+        );
+        XLSX.utils.sheet_add_aoa(
+          ws,
+          [["اجمالى القيمه المتبقيه بالصيدليه", totalRemainingValue]],
+          { origin: `A${summaryStartRow + 3}` }
+        );
+      }
+
       // Apply styles using cell references
       // Style for title
-      ws['A1'] = { v: title, t: 's', s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } } };
-      ws['A2'] = { v: dateStr, t: 's', s: { font: { color: { rgb: "666666" }, sz: 12 } } };
-      
+      ws["A1"] = {
+        v: title,
+        t: "s",
+        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 16 } },
+      };
+      ws["A2"] = {
+        v: dateStr,
+        t: "s",
+        s: { font: { color: { rgb: "666666" }, sz: 12 } },
+      };
+
       // Style for headers (row 3)
-      const headerStyle = { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "6D4CB3" } }, alignment: { horizontal: 'center' } };
-      const headerRow = XLSX.utils.decode_range(ws['!ref']).s.r + 2; // Get the header row (0-indexed)
-      const range = XLSX.utils.decode_range(ws['!ref']);
-      
+      const headerStyle = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "6D4CB3" } },
+        alignment: { horizontal: "center" },
+      };
+      const headerRow = XLSX.utils.decode_range(ws["!ref"]).s.r + 2; // Get the header row (0-indexed)
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+
       for (let C = range.s.c; C <= range.e.c; ++C) {
         const headerCell = XLSX.utils.encode_cell({ r: headerRow, c: C });
         if (!ws[headerCell]) continue;
         ws[headerCell].s = headerStyle;
       }
-      
+
       // Style for data cells - add zebra striping
       for (let R = headerRow + 1; R <= range.e.r; ++R) {
         const rowStyle = R % 2 ? { fill: { fgColor: { rgb: "F9F9F9" } } } : {};
-        
+
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const cell = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws[cell]) continue;
-          
+
           // Special formatting for numeric columns
-          if (C > 0) { // Skip the first column (item name)
-            ws[cell].s = { 
+          if (C > 0) {
+            // Skip the first column (item name)
+            ws[cell].s = {
               ...rowStyle,
-              alignment: { horizontal: 'center' },
+              alignment: { horizontal: "center" },
               font: { color: { rgb: "333333" } },
-              numFmt: '#,##0' // Add thousand separators
+              numFmt: "#,##0", // Add thousand separators
             };
           } else {
             ws[cell].s = { ...rowStyle, font: { bold: true } };
           }
         }
       }
-      
+
       // Style for summary section
-      ws[`A${summaryStartRow}`] = { 
-        v: "ملخص الإحصائيات", 
-        t: 's', 
-        s: { font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 }, 
-        fill: { fgColor: { rgb: "EFEFEF" } } }
+      ws[`A${summaryStartRow}`] = {
+        v: "ملخص الإحصائيات",
+        t: "s",
+        s: {
+          font: { bold: true, color: { rgb: "4F3FB6" }, sz: 14 },
+          fill: { fgColor: { rgb: "EFEFEF" } },
+        },
       };
-      
-      // Style for summary rows
-      for (let i = 1; i <= 3; i++) {
+
+      // Style for summary rows - handle different number of rows based on pharmacy settings
+      const summaryRowCount = pharmacySettings?.enableDispenseCategories
+        ? 5
+        : 3; // 5 rows for enabled, 3 for disabled
+      for (let i = 1; i <= summaryRowCount; i++) {
         const labelCell = `A${summaryStartRow + i}`;
         const valueCell = `B${summaryStartRow + i}`;
-        
+
         if (ws[labelCell]) {
-          ws[labelCell].s = { font: { bold: true }, fill: { fgColor: { rgb: "F5F5F5" } } };
+          ws[labelCell].s = {
+            font: { bold: true },
+            fill: { fgColor: { rgb: "F5F5F5" } },
+          };
         }
-        
+
         if (ws[valueCell]) {
-          ws[valueCell].s = { 
-            font: { bold: true, color: { rgb: "4F3FB6" } }, 
-            alignment: { horizontal: 'center' },
-            numFmt: '#,##0' // Add thousand separators
+          ws[valueCell].s = {
+            font: { bold: true, color: { rgb: "4F3FB6" } },
+            alignment: { horizontal: "center" },
+            numFmt: "#,##0", // Add thousand separators
           };
         }
       }
-      
+
       // Set column widths for better appearance
-      ws['!cols'] = [
+      ws["!cols"] = [
         { wch: 30 }, // اسم الصنف
         { wch: 18 }, // الرصيد الافتتاحي
         { wch: 18 }, // الوارد من المصنع
@@ -267,25 +494,23 @@ const StockStatusTable = ({
         { wch: 18 }, // سعر الوحدة
         { wch: 18 }, // القيمة المتبقية
       ];
-      
+
       // Set RTL direction for the worksheet
-      ws['!rightToLeft'] = true;
-      
+      ws["!rightToLeft"] = true;
+
       // Add to workbook
       XLSX.utils.book_append_sheet(wb, ws, "تقرير المخزون");
-      
+
       // Generate Excel file
       const fileName = `تقرير_حالة_المخزون_${monthNames[month]}_${year}.xlsx`;
       XLSX.writeFile(wb, fileName);
-      
+
       toast("تم تحميل ملف الإكسل بنجاح", "success");
     } catch (error) {
       console.error("Excel export error:", error);
       toast("فشل في تحميل ملف الإكسل", "error");
     }
   };
-
-
 
   return (
     <div className="space-y-6">
@@ -456,6 +681,9 @@ const StockStatusTable = ({
                     🏷️ الصنف
                   </th>
                   <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                    📄 رقم الصفحة
+                  </th>
+                  <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
                     💰 الرصيد الافتتاحي
                   </th>
                   <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
@@ -473,9 +701,39 @@ const StockStatusTable = ({
                   <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
                     💰 إجمالي الوارد والافتتاحي
                   </th>
-                  <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
-                    📤 إجمالي المنصرف
-                  </th>
+                  {pharmacySettings?.enableDispenseCategories ? (
+                    <>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        📤{" "}
+                        {pharmacySettings?.dispenseCategories?.patient ||
+                          "منصرف للمريض"}
+                      </th>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        📤{" "}
+                        {pharmacySettings?.dispenseCategories?.scissors ||
+                          "منصرف للمقص"}
+                      </th>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        💰 قيمة{" "}
+                        {pharmacySettings?.dispenseCategories?.patient ||
+                          "منصرف للمريض"}
+                      </th>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        💰 قيمة{" "}
+                        {pharmacySettings?.dispenseCategories?.scissors ||
+                          "منصرف للمقص"}
+                      </th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        📤 إجمالي المنصرف
+                      </th>
+                      <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
+                        💰 قيمة المنصرف
+                      </th>
+                    </>
+                  )}
                   <th className="p-4 font-bold text-purple-800 border-b border-purple-200">
                     💰 الرصيد الحالي
                   </th>
@@ -524,6 +782,23 @@ const StockStatusTable = ({
                         <td className="p-4 border-b border-gray-200">
                           <input
                             type="number"
+                            value={item.pageNumber || ""}
+                            onChange={(e) => {
+                              const newValue =
+                                e.target.value === ""
+                                  ? ""
+                                  : Math.floor(Number(e.target.value));
+                              updateItem(idx, { pageNumber: newValue });
+                            }}
+                            className="w-20 border-2 border-gray-300 px-2 py-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-500 transition-all duration-200"
+                            placeholder="رقم"
+                            min="1"
+                            step="1"
+                          />
+                        </td>
+                        <td className="p-4 border-b border-gray-200">
+                          <input
+                            type="number"
                             value={item.opening || ""}
                             onChange={(e) => {
                               const newValue =
@@ -563,11 +838,55 @@ const StockStatusTable = ({
                             {Math.floor(opening + totalIncoming)}
                           </div>
                         </td>
-                        <td className="p-4 border-b border-gray-200 bg-red-100 font-bold text-red-800 text-lg">
-                          <div className="text-center">
-                            {Math.floor(totalDispensed)}
-                          </div>
-                        </td>
+                        {pharmacySettings?.enableDispenseCategories ? (
+                          <>
+                            <td className="p-4 border-b border-gray-200 bg-blue-100 font-bold text-blue-800 text-lg">
+                              <div className="text-center">
+                                {Math.floor(calculateDispensed(item).patient)}
+                              </div>
+                            </td>
+                            <td className="p-4 border-b border-gray-200 bg-green-100 font-bold text-green-800 text-lg">
+                              <div className="text-center">
+                                {Math.floor(calculateDispensed(item).scissors)}
+                              </div>
+                            </td>
+                            <td className="p-4 border-b border-gray-200 bg-blue-50 font-bold text-blue-900 text-lg">
+                              <div className="text-center">
+                                {Number(
+                                  calculateDispensedValues(
+                                    item
+                                  ).patient.toFixed(2)
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4 border-b border-gray-200 bg-green-50 font-bold text-green-900 text-lg">
+                              <div className="text-center">
+                                {Number(
+                                  calculateDispensedValues(
+                                    item
+                                  ).scissors.toFixed(2)
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="p-4 border-b border-gray-200 bg-red-100 font-bold text-red-800 text-lg">
+                              <div className="text-center">
+                                {Math.floor(totalDispensed)}
+                              </div>
+                            </td>
+                            <td className="p-4 border-b border-gray-200 bg-red-50 font-bold text-red-900 text-lg">
+                              <div className="text-center">
+                                {Number(
+                                  calculateDispensedValues(item).total.toFixed(
+                                    2
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        )}
                         <td className="p-4 border-b border-gray-200 bg-purple-100 font-bold text-purple-800 text-lg">
                           <div className="text-center">
                             {Math.floor(currentStock)}
@@ -581,18 +900,18 @@ const StockStatusTable = ({
                               const newValue =
                                 e.target.value === ""
                                   ? 0
-                                  : Math.floor(Number(e.target.value));
+                                  : Number(e.target.value);
                               updateItem(idx, { unitPrice: newValue });
                             }}
                             className="w-full border-2 border-gray-300 px-4 py-3 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-500 transition-all duration-200"
-                            placeholder="0"
+                            placeholder="0.00"
                             min="0"
-                            step="1"
+                            step="0.01"
                           />
                         </td>
                         <td className="p-4 border-b border-gray-200 bg-yellow-100 font-bold text-yellow-800 text-lg">
                           <div className="text-center">
-                            {Math.floor(remainingValue)}
+                            {Number(remainingValue.toFixed(2))}
                           </div>
                         </td>
                       </motion.tr>

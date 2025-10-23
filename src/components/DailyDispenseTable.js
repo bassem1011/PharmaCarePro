@@ -1,10 +1,11 @@
 // src/components/DailyDispenseTable.jsx
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../App";
 import { Calendar } from "lucide-react";
 import MonthYearModal from "./ui/MonthYearModal";
+import { getPharmacySettings } from "../utils/firestoreService";
 
 const ConfirmDeleteModal = ({ onConfirm, onCancel }) => (
   <AnimatePresence>
@@ -80,10 +81,12 @@ const DailyDispenseTable = ({
   month,
   year,
   handleMonthYearChange,
+  pharmacyId,
 }) => {
   const toast = useToast();
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [showMonthYearModal, setShowMonthYearModal] = useState(false);
+  const [pharmacySettings, setPharmacySettings] = useState(null);
   const confirmDelete = (index) => setDeleteIndex(index);
   const cancelDelete = () => setDeleteIndex(null);
   const handleConfirmDelete = () => {
@@ -101,21 +104,52 @@ const DailyDispenseTable = ({
     return days;
   };
   const days = getDaysInMonth(month, year);
-  const handleValueChange = (index, day, value) => {
+  const handleValueChange = (index, day, value, category = "patient") => {
     if (!items || !items[index]) return;
     const item = items[index];
-    const updatedDispense = { ...item.dailyDispense, [day]: Number(value) };
+
+    // Create new dispense structure based on settings
+    let updatedDispense = { ...item.dailyDispense };
+
+    if (pharmacySettings?.enableDispenseCategories) {
+      // Store separate values for patient and scissors
+      if (!updatedDispense[day]) {
+        updatedDispense[day] = { patient: 0, scissors: 0 };
+      }
+      updatedDispense[day][category] = Number(value);
+    } else {
+      // Keep simple structure for backward compatibility
+      updatedDispense[day] = Number(value);
+    }
+
     updateItem(index, { dailyDispense: updatedDispense });
     toast("تم تحديث المنصرف اليومي!", "success");
   };
 
   const getTotal = (item) => {
     if (!item || !item.dailyDispense) return 0;
-    const total = Object.values(item.dailyDispense).reduce(
-      (sum, val) => sum + (Number(val) || 0),
-      0
-    );
-    return Math.floor(Number(total));
+    const total = Object.values(item.dailyDispense).reduce((sum, val) => {
+      if (typeof val === "object" && val.patient !== undefined) {
+        // New structure: { patient: 5, scissors: 3 }
+        const patientNum = Number(val.patient);
+        const scissorsNum = Number(val.scissors);
+        return (
+          sum +
+          (isNaN(patientNum) ? 0 : patientNum) +
+          (isNaN(scissorsNum) ? 0 : scissorsNum)
+        );
+      } else if (typeof val === "object" && val.quantity !== undefined) {
+        // Old structure: { quantity: 5, category: "patient" }
+        const num = Number(val.quantity);
+        return sum + (isNaN(num) ? 0 : num);
+      } else {
+        // Simple structure: 5
+        const num = Number(val);
+        return sum + (isNaN(num) ? 0 : num);
+      }
+    }, 0);
+    const result = isNaN(total) ? 0 : Math.floor(Number(total));
+    return result;
   };
 
   const getTotalIncoming = (item) => {
@@ -141,6 +175,35 @@ const DailyDispenseTable = ({
     const totalDispensed = getTotal(item);
     return Math.floor(Number(totalOpeningAndIncoming - totalDispensed));
   };
+
+  // Load pharmacy settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!pharmacyId) {
+        return;
+      }
+
+      try {
+        const settings = await getPharmacySettings(pharmacyId);
+        console.log(
+          "Loaded pharmacy settings for pharmacy",
+          pharmacyId,
+          ":",
+          settings
+        );
+        console.log(
+          "enableDispenseCategories:",
+          settings?.enableDispenseCategories
+        );
+        setPharmacySettings(settings);
+      } catch (error) {
+        console.error("Error loading pharmacy settings:", error);
+        toast("فشل تحميل إعدادات الصيدلية", "error");
+      }
+    };
+
+    loadSettings();
+  }, [pharmacyId, toast]);
 
   // Memoized calculations to avoid repeated computations
   const memoizedCalculations = useMemo(() => {
@@ -373,6 +436,9 @@ const DailyDispenseTable = ({
                   <th className="p-4 font-bold text-red-800 border-b border-red-200 sticky right-0 bg-gradient-to-r from-red-50 to-pink-50 z-20">
                     🏷️ الصنف
                   </th>
+                  <th className="p-4 font-bold text-red-800 border-b border-red-200">
+                    📄 رقم الصفحة
+                  </th>
                   {days.map((d) => (
                     <th
                       key={d}
@@ -422,25 +488,140 @@ const DailyDispenseTable = ({
                           placeholder="اسم الصنف"
                         />
                       </td>
-                      {days.map((day) => (
-                        <td key={day} className="p-4 border-b border-gray-200">
-                          <input
-                            type="number"
-                            value={item.dailyDispense?.[day] || ""}
-                            onChange={(e) => {
-                              const newValue =
-                                e.target.value === ""
-                                  ? 0
-                                  : Math.floor(Number(e.target.value));
-                              handleValueChange(index, day, newValue);
-                            }}
-                            className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-red-50"
-                            placeholder="0"
-                            min="0"
-                            step="1"
-                          />
-                        </td>
-                      ))}
+                      <td className="p-4 border-b border-gray-200">
+                        <input
+                          type="number"
+                          value={item.pageNumber || ""}
+                          onChange={(e) => {
+                            const newValue =
+                              e.target.value === ""
+                                ? ""
+                                : Math.floor(Number(e.target.value));
+                            updateItem(index, { pageNumber: newValue });
+                          }}
+                          className="w-20 border-2 border-gray-300 px-2 py-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-500 transition-all duration-200"
+                          placeholder="رقم"
+                          min="1"
+                          step="1"
+                        />
+                      </td>
+                      {days.map((day) => {
+                        const dayData = item.dailyDispense?.[day];
+
+                        // Handle different data structures
+                        let patientValue = 0;
+                        let scissorsValue = 0;
+
+                        if (pharmacySettings?.enableDispenseCategories) {
+                          if (
+                            typeof dayData === "object" &&
+                            dayData.patient !== undefined
+                          ) {
+                            // New structure: { patient: 5, scissors: 3 }
+                            patientValue = Number(dayData.patient) || 0;
+                            scissorsValue = Number(dayData.scissors) || 0;
+                          } else if (
+                            typeof dayData === "object" &&
+                            dayData.quantity !== undefined
+                          ) {
+                            // Old structure: { quantity: 5, category: "patient" }
+                            if (dayData.category === "patient") {
+                              patientValue = Number(dayData.quantity) || 0;
+                            } else {
+                              scissorsValue = Number(dayData.quantity) || 0;
+                            }
+                          } else {
+                            // Simple number, default to patient
+                            patientValue = Number(dayData) || 0;
+                          }
+                        } else {
+                          // Simple structure for backward compatibility
+                          patientValue = Number(dayData) || 0;
+                        }
+
+                        return (
+                          <td
+                            key={day}
+                            className="p-4 border-b border-gray-200"
+                          >
+                            {pharmacySettings?.enableDispenseCategories ? (
+                              <div className="space-y-2">
+                                {/* Patient Dispense Input */}
+                                <div className="flex flex-col items-center">
+                                  <label className="text-xs text-gray-600 mb-1">
+                                    {pharmacySettings?.dispenseCategories
+                                      ?.patient || "مريض"}
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={patientValue || ""}
+                                    onChange={(e) => {
+                                      const newValue =
+                                        e.target.value === ""
+                                          ? 0
+                                          : Math.floor(Number(e.target.value));
+                                      handleValueChange(
+                                        index,
+                                        day,
+                                        newValue,
+                                        "patient"
+                                      );
+                                    }}
+                                    className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-blue-50"
+                                    placeholder="0"
+                                    min="0"
+                                    step="1"
+                                  />
+                                </div>
+
+                                {/* Scissors Dispense Input */}
+                                <div className="flex flex-col items-center">
+                                  <label className="text-xs text-gray-600 mb-1">
+                                    {pharmacySettings?.dispenseCategories
+                                      ?.scissors || "مقص"}
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={scissorsValue || ""}
+                                    onChange={(e) => {
+                                      const newValue =
+                                        e.target.value === ""
+                                          ? 0
+                                          : Math.floor(Number(e.target.value));
+                                      handleValueChange(
+                                        index,
+                                        day,
+                                        newValue,
+                                        "scissors"
+                                      );
+                                    }}
+                                    className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-green-50"
+                                    placeholder="0"
+                                    min="0"
+                                    step="1"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                value={patientValue || ""}
+                                onChange={(e) => {
+                                  const newValue =
+                                    e.target.value === ""
+                                      ? 0
+                                      : Math.floor(Number(e.target.value));
+                                  handleValueChange(index, day, newValue);
+                                }}
+                                className="w-16 h-8 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-red-50"
+                                placeholder="0"
+                                min="0"
+                                step="1"
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
                       <td className="p-4 border-b border-gray-200 font-bold text-gray-800">
                         {getTotal(item)}
                       </td>
@@ -469,7 +650,7 @@ const DailyDispenseTable = ({
                       className="bg-gray-50"
                     >
                       <td
-                        colSpan={days.length + 5}
+                        colSpan={days.length + 6}
                         className="p-8 text-center text-gray-500 text-lg"
                       >
                         لا توجد أصناف مضافة بعد. اضغط على "إضافة صنف" لبدء

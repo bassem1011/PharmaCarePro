@@ -1,70 +1,87 @@
-# Getting Started with Create React App
+# PharmaCarePro
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A modern, role-based pharmacy operations platform for lead pharmacists and on-site staff. Manage pharmacies and users, track daily dispensing/incoming, monitor attendance, view stock status and shortages, generate consumption reports, and publish custom pages — all built with React and Firebase.
+
+## Overview
+PharmaCarePro streamlines multi-pharmacy management with clear workflows for lead (owner) and regular/senior pharmacists. It centralizes daily operations, inventory tracking, attendance, and reporting in a clean, responsive web interface.
+
+## Key Features
+- Role-based access: lead vs. regular/senior pharmacists
+- Authentication: Firebase Auth for leads; Firestore-backed login for pharmacists
+- Pharmacies management: create, list, delete, and view details
+- Pharmacists management: assignment and attendance tracking
+- Inventory tracking: daily dispense and incoming per pharmacy
+- Stock status & shortages: current stock view and shortage detection
+- Reports: monthly consumption, exports (CSV/XLSX)
+- Custom pages: lightweight CMS per owner/pharmacy
+- Real-time updates: Firestore subscriptions
+
+## Tech Stack
+- React (Create React App), React Router, Framer Motion
+- Firebase (Auth, Cloud Firestore)
+- Tailwind CSS (via PostCSS)
+- Chart.js and xlsx for charts/exports
+
+## Getting Started
+- Prerequisites: Node.js 18+ and npm
+- Install: `npm install`
+- Start dev server: `npm start`
+
+### Firebase Configuration
+Create `.env.local` in the project root:
+```
+REACT_APP_FIREBASE_API_KEY=your_api_key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your_auth_domain
+REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+REACT_APP_FIREBASE_APP_ID=your_app_id
+REACT_APP_FIREBASE_MEASUREMENT_ID=your_measurement_id
+```
+Environment variables are recommended over editing `src/utils/firebase.js` directly.
+
+### Authentication Model
+- Lead users: email/password via Firebase Auth
+- Regular/Senior pharmacists: username/password stored in `users` collection (client uses localStorage)
 
 ## Available Scripts
+- `npm start` — run development server
+- `npm run build` — create production build
+- `npm test` — run tests
 
-In the project directory, you can run:
+## Deployment (Optional: Firebase Hosting)
+- Install CLI: `npm i -g firebase-tools`
+- Login: `firebase login`
+- Build: `npm run build`
+- Deploy: `firebase deploy`
+Ensure `.firebaserc` points to your project and `firestore.rules` are hardened.
 
-### `npm start`
+## Notes
+- For production, use hashed passwords for Firestore-backed users
+- Review and secure Firestore rules before release
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+---
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Bilingual Overview / نظرة عامة ثنائية اللغة
 
-### `npm test`
+### English
+PharmaCarePro is a pharmacy operations platform for multi-branch management. Leads manage pharmacies and staff, while pharmacists record daily dispense/incoming, attendance, and view stock status, shortages, and reports.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Quick Start:
+- `npm install`
+- `npm start`
+- Configure Firebase in `.env.local`
 
-### `npm run build`
+### العربية
+PharmaCarePro منصة لإدارة عمليات الصيدليات متعددة الفروع. تُمكّن قائد الصيدلة من إدارة الصيدليات والصيادلة، بينما يُسجّل الصيادلة المنصرف والوارد اليومي، والحضور، ويعرضون حالة المخزون والنواقص والتقارير.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+البدء السريع:
+- تثبيت الحزم: `npm install`
+- تشغيل في التطوير: `npm start`
+- إعداد مفاتيح Firebase في ملف `.env.local`
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+الميزات:
+- صلاحيات حسب الدور (قائد، صيدلي عادي/كبير)
+- تسجيل الدخول للقائد عبر Firebase، وللصيادلة عبر اسم المستخدم/كلمة المرور
+- تتبّع المنصرف والوارد اليومي، وحالة المخزون والنواقص، والتقارير الشهرية
+- تحديثات مباشرة عبر Firestore

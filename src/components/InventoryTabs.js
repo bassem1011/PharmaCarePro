@@ -10,6 +10,7 @@ import {
   subscribeToPharmacyMonthlyStock,
   saveWithRetry,
   createDefaultPharmacyAndMigrate,
+  getPharmacySettings,
 } from "../utils/firestoreService";
 import Spinner from "./ui/Spinner";
 import Skeleton from "./ui/Skeleton";
@@ -167,6 +168,7 @@ export function useInventoryData(pharmacyId = null) {
   const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [monthlyConsumption, setMonthlyConsumption] = useState({});
+  const [pharmacySettings, setPharmacySettings] = useState(null);
 
   // Initialize default pharmacy and migrate data if needed
   useEffect(() => {
@@ -274,20 +276,72 @@ export function useInventoryData(pharmacyId = null) {
     return () => clearTimeout(handler);
   }, [itemsByMonth, pharmacyId]);
 
+  // Load pharmacy settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!pharmacyId) {
+        return;
+      }
+      try {
+        const settings = await getPharmacySettings(pharmacyId);
+        setPharmacySettings(settings);
+      } catch (error) {
+        console.error("Error loading pharmacy settings:", error);
+      }
+    };
+    loadSettings();
+  }, [pharmacyId]);
+
   const currentMonthKey = getMonthKey(year, month);
   const items = itemsByMonth[currentMonthKey] || [];
 
+  // Helper function to get total dispensed from daily data
+  const getTotalDispensedFromDaily = (item) => {
+    if (!item || !item.dailyDispense) return 0;
+
+    // Use simple calculation for pharmacies without the feature enabled
+    if (!pharmacySettings?.enableDispenseCategories) {
+      return getTotalDispensedSimple(item);
+    }
+
+    // Use advanced calculation for pharmacies with the feature enabled
+    const total = Object.values(item.dailyDispense).reduce((sum, val) => {
+      if (typeof val === "object" && val.patient !== undefined) {
+        // New structure: { patient: 5, scissors: 3 }
+        const patientNum = Number(val.patient);
+        const scissorsNum = Number(val.scissors);
+        return (
+          sum +
+          (isNaN(patientNum) ? 0 : patientNum) +
+          (isNaN(scissorsNum) ? 0 : scissorsNum)
+        );
+      } else if (typeof val === "object" && val.quantity !== undefined) {
+        // Old structure: { quantity: 5, category: "patient" }
+        const num = Number(val.quantity);
+        return sum + (isNaN(num) ? 0 : num);
+      } else {
+        // Simple structure: 5
+        const num = Number(val);
+        return sum + (isNaN(num) ? 0 : num);
+      }
+    }, 0);
+    const result = isNaN(total) ? 0 : Math.floor(Number(total));
+    return result;
+  };
+
+  // Helper function to get total dispensed using simple calculation (for pharmacies without the feature)
+  const getTotalDispensedSimple = (item) => {
+    if (!item || !item.dailyDispense) return 0;
+    const total = Object.values(item.dailyDispense).reduce((sum, val) => {
+      const num = Number(val);
+      return sum + (isNaN(num) ? 0 : num);
+    }, 0);
+    const result = isNaN(total) ? 0 : Math.floor(Number(total));
+    return result;
+  };
+
   // Calculate monthly consumption for shortages tracking
   const calculateMonthlyConsumption = () => {
-    const getTotalDispensedFromDaily = (item) => {
-      if (!item || !item.dailyDispense) return 0;
-      const total = Object.values(item.dailyDispense).reduce(
-        (sum, val) => sum + (Number(val) || 0),
-        0
-      );
-      return Math.floor(Number(total));
-    };
-
     const consumption = {};
     const monthKeys = Object.keys(itemsByMonth).sort();
 
@@ -351,12 +405,7 @@ export function useInventoryData(pharmacyId = null) {
         0
       )
     );
-    const totalDispensed = Math.floor(
-      Object.values(item.dailyDispense || {}).reduce(
-        (acc, val) => acc + Number(val || 0),
-        0
-      )
-    );
+    const totalDispensed = getTotalDispensedFromDaily(item);
 
     return Math.floor(opening + totalIncoming - totalDispensed);
   };
@@ -383,11 +432,15 @@ export function useInventoryData(pharmacyId = null) {
       const remainingStock = calculateRemainingStock(currentItem);
 
       if (nextMonthItemsMap[currentItem.name]) {
-        // Item exists in next month, update its opening stock
+        // Item exists in next month, update its opening stock and preserve page number
         const { index } = nextMonthItemsMap[currentItem.name];
         updatedNextMonthItems[index] = {
           ...updatedNextMonthItems[index],
           opening: remainingStock,
+          pageNumber:
+            currentItem.pageNumber ||
+            updatedNextMonthItems[index].pageNumber ||
+            "",
         };
       } else {
         // Item doesn't exist in next month, create it with remaining stock as opening
@@ -395,6 +448,7 @@ export function useInventoryData(pharmacyId = null) {
           name: currentItem.name,
           opening: remainingStock,
           unitPrice: currentItem.unitPrice || 0,
+          pageNumber: currentItem.pageNumber || "",
           dailyDispense: {},
           dailyIncoming: {},
           incomingSource: {},
@@ -454,6 +508,7 @@ export function useInventoryData(pharmacyId = null) {
       name: "",
       opening: 0,
       unitPrice: 0,
+      pageNumber: "",
       dailyDispense: {},
       dailyIncoming: {},
       incomingSource: {},
@@ -523,12 +578,23 @@ export function useInventoryData(pharmacyId = null) {
     modalOpen,
     setModalOpen,
     monthlyConsumption,
+    pharmacyId,
+    getTotalDispensedFromDaily,
+    pharmacySettings,
   };
 }
 
 export default function InventoryTabs() {
-  const { month, setMonth, year, setYear, modalOpen, setModalOpen, items } =
-    useInventoryData();
+  const {
+    month,
+    setMonth,
+    year,
+    setYear,
+    modalOpen,
+    setModalOpen,
+    items,
+    getTotalDispensedFromDaily,
+  } = useInventoryData();
   // Mini data summaries
   const dispensedCount = items.filter(
     (i) => Object.keys(i.dailyDispense || {}).length > 0
@@ -541,10 +607,7 @@ export default function InventoryTabs() {
     (i) =>
       i.opening +
         Object.values(i.dailyIncoming || {}).reduce((a, b) => a + (b || 0), 0) -
-        Object.values(i.dailyDispense || {}).reduce(
-          (a, b) => a + (b || 0),
-          0
-        ) <=
+        getTotalDispensedFromDaily(i) <=
       0
   ).length;
   return (
@@ -608,7 +671,7 @@ export function DailyDispenseSection(props) {
     deleteItem,
     loading,
     error,
-
+    pharmacyId,
     handleMonthYearChange,
   } = useInventoryData();
   if (loading)
@@ -635,6 +698,7 @@ export function DailyDispenseSection(props) {
         month={month}
         year={year}
         handleMonthYearChange={handleMonthYearChange}
+        pharmacyId={pharmacyId}
       />
     </div>
   );
@@ -686,6 +750,7 @@ export function StockStatusSection(props) {
     handleMonthYearChange,
     loading,
     error,
+    pharmacyId,
   } = useInventoryData();
 
   if (loading)
@@ -710,6 +775,7 @@ export function StockStatusSection(props) {
         month={month}
         year={year}
         handleMonthYearChange={handleMonthYearChange}
+        pharmacyId={pharmacyId}
       />
     </div>
   );
@@ -746,8 +812,15 @@ export function PharmacyShortagesSection(props) {
 }
 
 export function ConsumptionReportSection(props) {
-  const { items, monthlyConsumption, month, year, handleMonthYearChange } =
-    useInventoryData();
+  const {
+    items,
+    monthlyConsumption,
+    month,
+    year,
+    handleMonthYearChange,
+    pharmacySettings,
+    itemsByMonth,
+  } = useInventoryData();
   return (
     <div className="space-y-6">
       <ConsumptionReport
@@ -756,6 +829,8 @@ export function ConsumptionReportSection(props) {
         month={month}
         year={year}
         handleMonthYearChange={handleMonthYearChange}
+        pharmacySettings={pharmacySettings}
+        itemsByMonth={itemsByMonth}
       />
     </div>
   );
@@ -770,6 +845,8 @@ export function CustomPagesSection(props) {
     setMonth,
     setYear,
     handleMonthYearChange,
+    pharmacyId,
+    pharmacySettings,
   } = useInventoryData();
   const monthKey = getMonthKey(year, month);
   return (
@@ -783,6 +860,8 @@ export function CustomPagesSection(props) {
         setMonth={setMonth}
         setYear={setYear}
         handleMonthYearChange={handleMonthYearChange}
+        pharmacyId={pharmacyId}
+        pharmacySettings={pharmacySettings}
       />
     </div>
   );

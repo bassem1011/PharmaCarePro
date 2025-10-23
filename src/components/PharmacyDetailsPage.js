@@ -17,6 +17,7 @@ import { motion } from "framer-motion";
 import Spinner from "./ui/Spinner";
 
 import { useInventoryData } from "./InventoryTabs";
+import PharmacySettings from "./PharmacySettings";
 
 function getTodayDateString() {
   const d = new Date();
@@ -50,6 +51,7 @@ export default function PharmacyDetailsPage() {
   const [editSuccess, setEditSuccess] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const [activeDetailView, setActiveDetailView] = useState("overview");
 
   // Use pharmacy-specific inventory data with error handling
@@ -237,10 +239,29 @@ export default function PharmacyDetailsPage() {
             )
           );
           const totalDispensed = Math.floor(
-            Object.values(item.dailyDispense || {}).reduce(
-              (acc, val) => acc + Number(val || 0),
-              0
-            )
+            Object.values(item.dailyDispense || {}).reduce((acc, val) => {
+              if (typeof val === "object" && val.patient !== undefined) {
+                // New structure: { patient: 5, scissors: 3 }
+                const patientNum = Number(val.patient);
+                const scissorsNum = Number(val.scissors);
+                return (
+                  acc +
+                  (isNaN(patientNum) ? 0 : patientNum) +
+                  (isNaN(scissorsNum) ? 0 : scissorsNum)
+                );
+              } else if (
+                typeof val === "object" &&
+                val.quantity !== undefined
+              ) {
+                // Old structure: { quantity: 5, category: "patient" }
+                const num = Number(val.quantity);
+                return acc + (isNaN(num) ? 0 : num);
+              } else {
+                // Simple structure: 5
+                const num = Number(val);
+                return acc + (isNaN(num) ? 0 : num);
+              }
+            }, 0)
           );
           const currentStock = opening + totalIncoming - totalDispensed;
 
@@ -260,10 +281,29 @@ export default function PharmacyDetailsPage() {
             )
           );
           const totalDispensed = Math.floor(
-            Object.values(item.dailyDispense || {}).reduce(
-              (acc, val) => acc + Number(val || 0),
-              0
-            )
+            Object.values(item.dailyDispense || {}).reduce((acc, val) => {
+              if (typeof val === "object" && val.patient !== undefined) {
+                // New structure: { patient: 5, scissors: 3 }
+                const patientNum = Number(val.patient);
+                const scissorsNum = Number(val.scissors);
+                return (
+                  acc +
+                  (isNaN(patientNum) ? 0 : patientNum) +
+                  (isNaN(scissorsNum) ? 0 : scissorsNum)
+                );
+              } else if (
+                typeof val === "object" &&
+                val.quantity !== undefined
+              ) {
+                // Old structure: { quantity: 5, category: "patient" }
+                const num = Number(val.quantity);
+                return acc + (isNaN(num) ? 0 : num);
+              } else {
+                // Simple structure: 5
+                const num = Number(val);
+                return acc + (isNaN(num) ? 0 : num);
+              }
+            }, 0)
           );
           const currentStock = opening + totalIncoming - totalDispensed;
 
@@ -477,6 +517,14 @@ export default function PharmacyDetailsPage() {
                           whileTap={{ scale: 0.95 }}
                         >
                           تعديل
+                        </motion.button>
+                        <motion.button
+                          className="text-blue-400 hover:text-white text-sm bg-gray-800/50 px-3 py-1 rounded-lg transition-all duration-300"
+                          onClick={() => setShowSettings(true)}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          إعدادات
                         </motion.button>
                         <motion.button
                           className="text-red-400 hover:text-red-300 text-sm bg-gray-800/50 px-3 py-1 rounded-lg transition-all duration-300"
@@ -863,7 +911,12 @@ export default function PharmacyDetailsPage() {
                           <div className="flex justify-between">
                             <span>القيمة المطلوبة:</span>
                             <span className="font-bold text-red-400">
-                              {shortage.shortage * shortage.unitPrice} ج.م
+                              {Number(
+                                (
+                                  shortage.shortage * shortage.unitPrice
+                                ).toFixed(2)
+                              )}{" "}
+                              ج.م
                             </span>
                           </div>
                         </div>
@@ -1091,6 +1144,14 @@ export default function PharmacyDetailsPage() {
           </motion.div>
         </motion.div>
       </motion.div>
+
+      {/* Pharmacy Settings Modal */}
+      {showSettings && (
+        <PharmacySettings
+          pharmacyId={pharmacyId}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

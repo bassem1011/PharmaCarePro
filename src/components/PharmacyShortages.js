@@ -26,10 +26,26 @@ const PharmacyShortages = ({
   const getTotalDispensedFromDaily = useCallback((item) => {
     if (!item.dailyDispense) return 0;
     return Math.floor(
-      Object.values(item.dailyDispense).reduce(
-        (acc, val) => acc + Number(val || 0),
-        0
-      )
+      Object.values(item.dailyDispense).reduce((acc, val) => {
+        if (typeof val === "object" && val.patient !== undefined) {
+          // New structure: { patient: 5, scissors: 3 }
+          const patientNum = Number(val.patient);
+          const scissorsNum = Number(val.scissors);
+          return (
+            acc +
+            (isNaN(patientNum) ? 0 : patientNum) +
+            (isNaN(scissorsNum) ? 0 : scissorsNum)
+          );
+        } else if (typeof val === "object" && val.quantity !== undefined) {
+          // Old structure: { quantity: 5, category: "patient" }
+          const num = Number(val.quantity);
+          return acc + (isNaN(num) ? 0 : num);
+        } else {
+          // Simple structure: 5
+          const num = Number(val);
+          return acc + (isNaN(num) ? 0 : num);
+        }
+      }, 0)
     );
   }, []);
 

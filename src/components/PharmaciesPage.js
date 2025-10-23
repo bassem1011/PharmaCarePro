@@ -14,7 +14,8 @@ import { useNavigate } from "react-router-dom";
 
 import Skeleton from "./ui/Skeleton";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, Settings } from "lucide-react";
+import PharmacySettings from "./PharmacySettings";
 
 export default function PharmaciesPage() {
   const [pharmacies, setPharmacies] = useState([]);
@@ -26,6 +27,8 @@ export default function PharmaciesPage() {
   const [deletingPharmacy, setDeletingPharmacy] = useState(null);
   const [deleteError, setDeleteError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [selectedPharmacyId, setSelectedPharmacyId] = useState(null);
 
   const navigate = useNavigate();
   const auth = getAuth();
@@ -409,6 +412,19 @@ export default function PharmaciesPage() {
                   </motion.button>
 
                   <motion.button
+                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-300 font-bold text-lg shadow-xl hover:shadow-blue-500/25 transform hover:scale-105 flex items-center justify-center gap-2"
+                    onClick={() => {
+                      setSelectedPharmacyId(pharmacy.id);
+                      setShowSettings(true);
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Settings className="w-5 h-5" />
+                    إعدادات
+                  </motion.button>
+
+                  <motion.button
                     className="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white py-3 rounded-xl hover:from-red-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-xl hover:shadow-red-500/25 transform hover:scale-105 flex items-center justify-center gap-2"
                     onClick={() =>
                       handleDeletePharmacy(pharmacy.id, pharmacy.name)
@@ -488,6 +504,17 @@ export default function PharmaciesPage() {
             تسجيل الدخول
           </motion.button>
         </motion.div>
+      )}
+
+      {/* Pharmacy Settings Modal */}
+      {showSettings && selectedPharmacyId && (
+        <PharmacySettings
+          pharmacyId={selectedPharmacyId}
+          onClose={() => {
+            setShowSettings(false);
+            setSelectedPharmacyId(null);
+          }}
+        />
       )}
     </div>
   );

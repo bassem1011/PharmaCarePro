@@ -235,8 +235,8 @@ export default function PharmacistDashboard() {
     addItem,
     deleteItem,
     handleMonthYearChange,
-
     monthlyConsumption,
+    pharmacySettings,
   } = useInventoryData(assignedPharmacyId);
 
   // Get pharmacy name for display
@@ -379,7 +379,39 @@ export default function PharmacistDashboard() {
                   ? items.reduce((sum, item) => {
                       const itemTotal = Object.values(
                         item.dailyDispense || {}
-                      ).reduce((acc, val) => acc + Number(val || 0), 0);
+                      ).reduce((acc, val) => {
+                        // Use simple calculation for pharmacies without the feature
+                        if (!pharmacySettings?.enableDispenseCategories) {
+                          const num = Number(val);
+                          return acc + (isNaN(num) ? 0 : num);
+                        }
+
+                        // Use advanced calculation for pharmacies with the feature
+                        if (
+                          typeof val === "object" &&
+                          val.patient !== undefined
+                        ) {
+                          // New structure: { patient: 5, scissors: 3 }
+                          const patientNum = Number(val.patient);
+                          const scissorsNum = Number(val.scissors);
+                          return (
+                            acc +
+                            (isNaN(patientNum) ? 0 : patientNum) +
+                            (isNaN(scissorsNum) ? 0 : scissorsNum)
+                          );
+                        } else if (
+                          typeof val === "object" &&
+                          val.quantity !== undefined
+                        ) {
+                          // Old structure: { quantity: 5, category: "patient" }
+                          const num = Number(val.quantity);
+                          return acc + (isNaN(num) ? 0 : num);
+                        } else {
+                          // Simple structure: 5
+                          const num = Number(val);
+                          return acc + (isNaN(num) ? 0 : num);
+                        }
+                      }, 0);
                       return sum + itemTotal;
                     }, 0)
                   : 0}
@@ -413,7 +445,32 @@ export default function PharmacistDashboard() {
                       );
                       const totalDispensed = Math.floor(
                         Object.values(item.dailyDispense || {}).reduce(
-                          (acc, val) => acc + Number(val || 0),
+                          (acc, val) => {
+                            if (
+                              typeof val === "object" &&
+                              val.patient !== undefined
+                            ) {
+                              // New structure: { patient: 5, scissors: 3 }
+                              const patientNum = Number(val.patient);
+                              const scissorsNum = Number(val.scissors);
+                              return (
+                                acc +
+                                (isNaN(patientNum) ? 0 : patientNum) +
+                                (isNaN(scissorsNum) ? 0 : scissorsNum)
+                              );
+                            } else if (
+                              typeof val === "object" &&
+                              val.quantity !== undefined
+                            ) {
+                              // Old structure: { quantity: 5, category: "patient" }
+                              const num = Number(val.quantity);
+                              return acc + (isNaN(num) ? 0 : num);
+                            } else {
+                              // Simple structure: 5
+                              const num = Number(val);
+                              return acc + (isNaN(num) ? 0 : num);
+                            }
+                          },
                           0
                         )
                       );
@@ -638,6 +695,7 @@ export default function PharmacistDashboard() {
                       month={month}
                       year={year}
                       handleMonthYearChange={handleMonthYearChange}
+                      pharmacyId={assignedPharmacyId}
                     />
                   </div>
                 </>
@@ -680,6 +738,7 @@ export default function PharmacistDashboard() {
                       month={month}
                       year={year}
                       handleMonthYearChange={handleMonthYearChange}
+                      pharmacyId={assignedPharmacyId}
                     />
                   </div>
                 </>

@@ -41,6 +41,8 @@ const CustomPageManager = ({
   setMonth,
   setYear,
   handleMonthYearChange,
+  pharmacyId,
+  pharmacySettings,
 }) => {
   const toast = useToast();
   const [customPages, setCustomPages] = useState([]);
@@ -119,6 +121,7 @@ const CustomPageManager = ({
                     const ownerId = pharmacyDoc.data().ownerId;
 
                     // Subscribe to custom pages owned by the pharmacy owner
+                    // Include both pharmacy-specific pages and legacy pages without pharmacyId
                     const customPagesQuery = query(
                       collection(db, "customPages"),
                       where("ownerId", "==", ownerId)
@@ -128,7 +131,28 @@ const CustomPageManager = ({
                         id: doc.id,
                         ...doc.data(),
                       }));
-                      setCustomPages(pagesData);
+                      // Filter pages to show only those for current pharmacy or legacy pages
+                      console.log("Custom pages debug:", {
+                        pharmacyId: pharmacyId,
+                        pagesData: pagesData.map((p) => ({
+                          id: p.id,
+                          name: p.name,
+                          pharmacyId: p.pharmacyId,
+                        })),
+                      });
+
+                      const filteredPages = pagesData.filter((page) => {
+                        const isLegacy = !page.pharmacyId;
+                        const isCurrentPharmacy =
+                          page.pharmacyId === pharmacyId;
+                        const shouldShow = isLegacy || isCurrentPharmacy;
+
+                        console.log(
+                          `Page ${page.name}: legacy=${isLegacy}, currentPharmacy=${isCurrentPharmacy}, shouldShow=${shouldShow}`
+                        );
+                        return shouldShow;
+                      });
+                      setCustomPages(filteredPages);
                     });
                   }
                 }
@@ -142,6 +166,7 @@ const CustomPageManager = ({
 
         // For lead pharmacists (Firebase Auth users)
         // Subscribe to custom pages owned by current user
+        // Include both pharmacy-specific pages and legacy pages without pharmacyId
         const customPagesQuery = query(
           collection(db, "customPages"),
           where("ownerId", "==", currentUser.uid)
@@ -151,7 +176,27 @@ const CustomPageManager = ({
             id: doc.id,
             ...doc.data(),
           }));
-          setCustomPages(pagesData);
+          // Filter pages to show only those for current pharmacy or legacy pages
+          console.log("Custom pages debug (lead):", {
+            pharmacyId: pharmacyId,
+            pagesData: pagesData.map((p) => ({
+              id: p.id,
+              name: p.name,
+              pharmacyId: p.pharmacyId,
+            })),
+          });
+
+          const filteredPages = pagesData.filter((page) => {
+            const isLegacy = !page.pharmacyId;
+            const isCurrentPharmacy = page.pharmacyId === pharmacyId;
+            const shouldShow = isLegacy || isCurrentPharmacy;
+
+            console.log(
+              `Page ${page.name}: legacy=${isLegacy}, currentPharmacy=${isCurrentPharmacy}, shouldShow=${shouldShow}`
+            );
+            return shouldShow;
+          });
+          setCustomPages(filteredPages);
         });
       } catch (error) {
         console.error("Error setting up real-time listeners:", error);
@@ -180,7 +225,9 @@ const CustomPageManager = ({
       (filterType === "incoming" &&
         Object.keys(item.dailyIncoming || {}).length > 0) ||
       (filterType === "stock" &&
-        (item.opening > 0 || Object.keys(item.dailyIncoming || {}).length > 0));
+        // Show all items with stock data, including zero stock items
+        (item.opening >= 0 ||
+          Object.keys(item.dailyIncoming || {}).length > 0));
 
     return matchesSearch && matchesFilter;
   });
@@ -199,6 +246,7 @@ const CustomPageManager = ({
       monthKey: monthKey,
       month: month,
       year: year,
+      pharmacyId: pharmacyId, // Associate with current pharmacy
     });
     setNewPageName("");
     setIsCreating(false);
@@ -557,7 +605,41 @@ const CustomPageManager = ({
                           إجمالي المنصرف:{" "}
                           {Math.floor(
                             Object.values(item.dailyDispense || {}).reduce(
-                              (sum, val) => sum + (Number(val) || 0),
+                              (sum, val) => {
+                                // Use simple calculation for pharmacies without the feature
+                                if (
+                                  !pharmacySettings?.enableDispenseCategories
+                                ) {
+                                  const num = Number(val);
+                                  return sum + (isNaN(num) ? 0 : num);
+                                }
+
+                                // Use advanced calculation for pharmacies with the feature
+                                if (
+                                  typeof val === "object" &&
+                                  val.patient !== undefined
+                                ) {
+                                  // New structure: { patient: 5, scissors: 3 }
+                                  const patientNum = Number(val.patient);
+                                  const scissorsNum = Number(val.scissors);
+                                  return (
+                                    sum +
+                                    (isNaN(patientNum) ? 0 : patientNum) +
+                                    (isNaN(scissorsNum) ? 0 : scissorsNum)
+                                  );
+                                } else if (
+                                  typeof val === "object" &&
+                                  val.quantity !== undefined
+                                ) {
+                                  // Old structure: { quantity: 5, category: "patient" }
+                                  const num = Number(val.quantity);
+                                  return sum + (isNaN(num) ? 0 : num);
+                                } else {
+                                  // Simple structure: 5
+                                  const num = Number(val);
+                                  return sum + (isNaN(num) ? 0 : num);
+                                }
+                              },
                               0
                             )
                           )}
@@ -576,7 +658,41 @@ const CustomPageManager = ({
                             );
                             const totalDispensed = Math.floor(
                               Object.values(item.dailyDispense || {}).reduce(
-                                (sum, val) => sum + (Number(val) || 0),
+                                (sum, val) => {
+                                  // Use simple calculation for pharmacies without the feature
+                                  if (
+                                    !pharmacySettings?.enableDispenseCategories
+                                  ) {
+                                    const num = Number(val);
+                                    return sum + (isNaN(num) ? 0 : num);
+                                  }
+
+                                  // Use advanced calculation for pharmacies with the feature
+                                  if (
+                                    typeof val === "object" &&
+                                    val.patient !== undefined
+                                  ) {
+                                    // New structure: { patient: 5, scissors: 3 }
+                                    const patientNum = Number(val.patient);
+                                    const scissorsNum = Number(val.scissors);
+                                    return (
+                                      sum +
+                                      (isNaN(patientNum) ? 0 : patientNum) +
+                                      (isNaN(scissorsNum) ? 0 : scissorsNum)
+                                    );
+                                  } else if (
+                                    typeof val === "object" &&
+                                    val.quantity !== undefined
+                                  ) {
+                                    // Old structure: { quantity: 5, category: "patient" }
+                                    const num = Number(val.quantity);
+                                    return sum + (isNaN(num) ? 0 : num);
+                                  } else {
+                                    // Simple structure: 5
+                                    const num = Number(val);
+                                    return sum + (isNaN(num) ? 0 : num);
+                                  }
+                                },
                                 0
                               )
                             );
@@ -1002,10 +1118,49 @@ const CustomPageManager = ({
                                     {Math.floor(
                                       Object.values(
                                         item.dailyDispense || {}
-                                      ).reduce(
-                                        (sum, val) => sum + (Number(val) || 0),
-                                        0
-                                      )
+                                      ).reduce((sum, val) => {
+                                        // Use simple calculation for pharmacies without the feature
+                                        if (
+                                          !pharmacySettings?.enableDispenseCategories
+                                        ) {
+                                          const num = Number(val);
+                                          return sum + (isNaN(num) ? 0 : num);
+                                        }
+
+                                        // Use advanced calculation for pharmacies with the feature
+                                        if (
+                                          typeof val === "object" &&
+                                          val.patient !== undefined
+                                        ) {
+                                          // New structure: { patient: 5, scissors: 3 }
+                                          const patientNum = Number(
+                                            val.patient
+                                          );
+                                          const scissorsNum = Number(
+                                            val.scissors
+                                          );
+                                          return (
+                                            sum +
+                                            (isNaN(patientNum)
+                                              ? 0
+                                              : patientNum) +
+                                            (isNaN(scissorsNum)
+                                              ? 0
+                                              : scissorsNum)
+                                          );
+                                        } else if (
+                                          typeof val === "object" &&
+                                          val.quantity !== undefined
+                                        ) {
+                                          // Old structure: { quantity: 5, category: "patient" }
+                                          const num = Number(val.quantity);
+                                          return sum + (isNaN(num) ? 0 : num);
+                                        } else {
+                                          // Simple structure: 5
+                                          const num = Number(val);
+                                          return sum + (isNaN(num) ? 0 : num);
+                                        }
+                                      }, 0)
                                     )}
                                   </span>
                                 </div>
@@ -1030,11 +1185,49 @@ const CustomPageManager = ({
                                       const totalDispensed = Math.floor(
                                         Object.values(
                                           item.dailyDispense || {}
-                                        ).reduce(
-                                          (sum, val) =>
-                                            sum + (Number(val) || 0),
-                                          0
-                                        )
+                                        ).reduce((sum, val) => {
+                                          // Use simple calculation for pharmacies without the feature
+                                          if (
+                                            !pharmacySettings?.enableDispenseCategories
+                                          ) {
+                                            const num = Number(val);
+                                            return sum + (isNaN(num) ? 0 : num);
+                                          }
+
+                                          // Use advanced calculation for pharmacies with the feature
+                                          if (
+                                            typeof val === "object" &&
+                                            val.patient !== undefined
+                                          ) {
+                                            // New structure: { patient: 5, scissors: 3 }
+                                            const patientNum = Number(
+                                              val.patient
+                                            );
+                                            const scissorsNum = Number(
+                                              val.scissors
+                                            );
+                                            return (
+                                              sum +
+                                              (isNaN(patientNum)
+                                                ? 0
+                                                : patientNum) +
+                                              (isNaN(scissorsNum)
+                                                ? 0
+                                                : scissorsNum)
+                                            );
+                                          } else if (
+                                            typeof val === "object" &&
+                                            val.quantity !== undefined
+                                          ) {
+                                            // Old structure: { quantity: 5, category: "patient" }
+                                            const num = Number(val.quantity);
+                                            return sum + (isNaN(num) ? 0 : num);
+                                          } else {
+                                            // Simple structure: 5
+                                            const num = Number(val);
+                                            return sum + (isNaN(num) ? 0 : num);
+                                          }
+                                        }, 0)
                                       );
                                       return (
                                         opening + totalIncoming - totalDispensed

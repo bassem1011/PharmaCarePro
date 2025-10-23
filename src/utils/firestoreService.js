@@ -36,12 +36,15 @@ export const validateItem = (item) => {
     return true;
   }
 
+  // Allow zero or positive opening stock (zero is valid)
   if (item.opening < 0) {
     throw new Error("الرصيد الافتتاحي لا يمكن أن يكون سالب");
   }
   if (item.unitPrice < 0) {
     throw new Error("سعر الوحدة لا يمكن أن يكون سالب");
   }
+
+  // Allow items with zero stock to persist - they should not be filtered out
   return true;
 };
 
@@ -88,7 +91,6 @@ export async function createDefaultPharmacyAndMigrate(ownerId = null) {
     );
 
     if (globalMonthlyStockSnap.size > 0) {
-
       const batch = writeBatch(db);
 
       globalMonthlyStockSnap.forEach((docSnap) => {
@@ -268,6 +270,7 @@ export async function addCustomPage(data, ownerId = null) {
   return await addDoc(collection(db, "customPages"), {
     ...data,
     ownerId, // Add owner ID for multi-tenancy
+    pharmacyId: data.pharmacyId || null, // Add pharmacy ID for pharmacy-specific pages
   });
 }
 
@@ -387,6 +390,15 @@ export async function createPharmacy(name, ownerId = null) {
     ownerId, // Add owner ID for multi-tenancy
     createdAt: new Date().toISOString(),
     isDefault: false,
+    // Pharmacy configuration settings
+    settings: {
+      enableDispenseCategories: false, // Enable patient vs scissors dispense separation
+      enableCostCalculationToggle: false, // Enable cost calculation toggle for dispensed items
+      dispenseCategories: {
+        patient: "منصرف للمريض",
+        scissors: "منصرف للمقص",
+      },
+    },
   });
   return { id: docRef.id, name, ownerId };
 }
@@ -397,6 +409,43 @@ export async function getPharmacyNameById(id) {
     return docSnap.data().name || id;
   }
   return id;
+}
+
+// Update pharmacy settings
+export async function updatePharmacySettings(pharmacyId, settings) {
+  try {
+    await updateDoc(doc(db, "pharmacies", pharmacyId), {
+      settings: settings,
+    });
+    return true;
+  } catch (error) {
+    console.error("Error updating pharmacy settings:", error);
+    throw error;
+  }
+}
+
+// Get pharmacy settings
+export async function getPharmacySettings(pharmacyId) {
+  try {
+    const docSnap = await getDoc(doc(db, "pharmacies", pharmacyId));
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return (
+        data.settings || {
+          enableDispenseCategories: false,
+          enableCostCalculationToggle: false,
+          dispenseCategories: {
+            patient: "منصرف للمريض",
+            scissors: "منصرف للمقص",
+          },
+        }
+      );
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting pharmacy settings:", error);
+    throw error;
+  }
 }
 
 // Delete a pharmacy and all related data
