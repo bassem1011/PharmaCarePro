@@ -5,7 +5,7 @@ import StockStatusTable from "./StockStatusTable";
 import ConsumptionReport from "./ConsumptionReport";
 import CustomPageManager from "./CustomPageManager";
 import PharmacyShortages from "./PharmacyShortages";
-import { motion } from "framer-motion";
+// import { motion } from "framer-motion";
 import {
   subscribeToPharmacyMonthlyStock,
   saveWithRetry,
@@ -19,70 +19,70 @@ const getMonthKey = (year, month) =>
   `${year}-${String(month + 1).padStart(2, "0")}`;
 
 // TABS array is now used in DashboardGrid component via the tabs prop
-const TABS = [
-  { key: "dashboard", label: "الرئيسية", color: "cyan" },
-  { key: "dispense", label: "المنصرف اليومي", color: "blue" },
-  { key: "incoming", label: "الوارد اليومي", color: "green" },
-  { key: "stock", label: "المخزون الحالي", color: "yellow" },
-  { key: "shortages", label: "نواقص الصيدليه", color: "red" },
-  { key: "report", label: "تقرير الاستهلاك", color: "purple" },
-  { key: "custom", label: "صفحات مخصصة", color: "pink" },
-];
+// const TABS = [
+//   { key: "dashboard", label: "الرئيسية", color: "cyan" },
+//   { key: "dispense", label: "المنصرف اليومي", color: "blue" },
+//   { key: "incoming", label: "الوارد اليومي", color: "green" },
+//   { key: "stock", label: "المخزون الحالي", color: "yellow" },
+//   { key: "shortages", label: "نواقص الصيدليه", color: "red" },
+//   { key: "report", label: "تقرير الاستهلاك", color: "purple" },
+//   { key: "custom", label: "صفحات مخصصة", color: "pink" },
+// ];
 
-const CARD_GRADIENTS = {
-  dispense: "bg-gradient-to-br from-blue-500 via-blue-400 to-blue-600",
-  incoming: "bg-gradient-to-br from-green-500 via-green-400 to-green-600",
-  stock: "bg-gradient-to-br from-yellow-400 via-yellow-300 to-yellow-500",
-  shortages: "bg-gradient-to-br from-red-500 via-red-400 to-red-600",
-  report: "bg-gradient-to-br from-purple-600 via-purple-500 to-purple-700",
-  custom: "bg-gradient-to-br from-pink-500 via-pink-400 to-pink-600",
-};
+// const CARD_GRADIENTS = {
+//   dispense: "bg-gradient-to-br from-blue-500 via-blue-400 to-blue-600",
+//   incoming: "bg-gradient-to-br from-green-500 via-green-400 to-green-600",
+//   stock: "bg-gradient-to-br from-yellow-400 via-yellow-300 to-yellow-500",
+//   shortages: "bg-gradient-to-br from-red-500 via-red-400 to-red-600",
+//   report: "bg-gradient-to-br from-purple-600 via-purple-500 to-purple-700",
+//   custom: "bg-gradient-to-br from-pink-500 via-pink-400 to-pink-600",
+// };
 
-const getTabDescription = (tabKey) => {
-  const descriptions = {
-    dispense: "تتبع المنصرف اليومي",
-    incoming: "تتبع الوارد اليومي",
-    stock: "عرض المخزون الحالي",
-    shortages: "مراقبة النواقص والاحتياجات",
-    report: "تقرير الاستهلاك الشهري",
-    custom: "إنشاء صفحات مخصصة",
-  };
-  return descriptions[tabKey] || "";
-};
+// const getTabDescription = (tabKey) => {
+//   const descriptions = {
+//     dispense: "تتبع المنصرف اليومي",
+//     incoming: "تتبع الوارد اليومي",
+//     stock: "عرض المخزون الحالي",
+//     shortages: "مراقبة النواقص والاحتياجات",
+//     report: "تقرير الاستهلاك الشهري",
+//     custom: "إنشاء صفحات مخصصة",
+//   };
+//   return descriptions[tabKey] || "";
+// };
 
-const DashboardGrid = ({ tabs, setActiveTab }) => (
-  <div className="flex flex-1 items-center justify-center min-h-screen font-[Cairo]">
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 w-full max-w-6xl">
-      {tabs
-        .filter((tab) => tab.key !== "dashboard")
-        .map((tab) => (
-          <motion.button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            whileHover={{
-              scale: 1.05,
-              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
-            }}
-            whileTap={{ scale: 0.98 }}
-            className={`flex flex-col items-center justify-center px-6 py-8 rounded-2xl shadow-xl font-bold transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 text-white min-h-[180px] ${
-              CARD_GRADIENTS[tab.key] || "bg-gray-700"
-            }`}
-            style={{
-              fontFamily: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
-            }}
-          >
-            <span className="mb-4 text-3xl">🔹</span>
-            <span className="text-xl sm:text-2xl font-extrabold mb-2 tracking-wide leading-tight text-white drop-shadow-lg text-center break-words">
-              {tab.label}
-            </span>
-            <span className="text-sm sm:text-base font-normal text-white/90 text-center tracking-wide opacity-80">
-              {getTabDescription(tab.key)}
-            </span>
-          </motion.button>
-        ))}
-    </div>
-  </div>
-);
+// const DashboardGrid = ({ tabs, setActiveTab }) => (
+//   <div className="flex flex-1 items-center justify-center min-h-screen font-[Cairo]">
+//     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 w-full max-w-6xl">
+//       {tabs
+//         .filter((tab) => tab.key !== "dashboard")
+//         .map((tab) => (
+//           <motion.button
+//             key={tab.key}
+//             onClick={() => setActiveTab(tab.key)}
+//             whileHover={{
+//               scale: 1.05,
+//               boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+//             }}
+//             whileTap={{ scale: 0.98 }}
+//             className={`flex flex-col items-center justify-center px-6 py-8 rounded-2xl shadow-xl font-bold transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 text-white min-h-[180px] ${
+//               CARD_GRADIENTS[tab.key] || "bg-gray-700"
+//             }`}
+//             style={{
+//               fontFamily: "Cairo, Tajawal, Noto Sans Arabic, sans-serif",
+//             }}
+//           >
+//             <span className="mb-4 text-3xl">🔹</span>
+//             <span className="text-xl sm:text-2xl font-extrabold mb-2 tracking-wide leading-tight text-white drop-shadow-lg text-center break-words">
+//               {tab.label}
+//             </span>
+//             <span className="text-sm sm:text-base font-normal text-white/90 text-center tracking-wide opacity-80">
+//               {getTabDescription(tab.key)}
+//             </span>
+//           </motion.button>
+//         ))}
+//     </div>
+//   </div>
+// );
 
 const MonthYearModal = ({ open, onClose, month, setMonth, year, setYear }) => {
   if (!open) return null;
@@ -340,59 +340,86 @@ export function useInventoryData(pharmacyId = null) {
     return result;
   };
 
-  // Calculate monthly consumption for shortages tracking
-  const calculateMonthlyConsumption = () => {
-    const consumption = {};
-    const monthKeys = Object.keys(itemsByMonth).sort();
-
-    monthKeys.forEach((monthKey) => {
-      const items = itemsByMonth[monthKey] || [];
-
-      items.forEach((item) => {
-        if (!item.name) return;
-
-        if (!consumption[item.name]) {
-          consumption[item.name] = {
-            name: item.name,
-            months: {},
-            total: 0,
-            average: 0,
-          };
-        }
-
-        const totalDispensed = getTotalDispensedFromDaily(item);
-        consumption[item.name].months[monthKey] = totalDispensed;
-        consumption[item.name].total += totalDispensed;
-      });
-    });
-
-    // Calculate averages
-    Object.values(consumption).forEach((item) => {
-      const monthCount = Object.keys(item.months).length;
-      if (monthCount > 0) {
-        const total = item.total;
-        const average = total / monthCount;
-
-        // Enhanced average calculation
-        if (average > 0) {
-          item.average = Math.floor(average);
-        } else if (total > 0) {
-          item.average = Math.floor(total);
-        } else {
-          item.average = 10; // Default fallback
-        }
-      } else {
-        item.average = 10; // Default fallback
-      }
-    });
-
-    setMonthlyConsumption(consumption);
-  };
 
   // Use useEffect to calculate monthly consumption when itemsByMonth changes
   useEffect(() => {
+    const calculateMonthlyConsumption = () => {
+      const consumption = {};
+      const monthKeys = Object.keys(itemsByMonth).sort();
+
+      monthKeys.forEach((monthKey) => {
+        const items = itemsByMonth[monthKey] || [];
+
+        items.forEach((item) => {
+          if (!item.name) return;
+
+          if (!consumption[item.name]) {
+            consumption[item.name] = {
+              name: item.name,
+              total: 0,
+              months: 0,
+              average: 0,
+            };
+          }
+
+          const monthDispensed = Object.values(item.dailyDispense || {}).reduce(
+            (sum, val) => {
+              // Use simple calculation for pharmacies without the feature
+              if (!pharmacySettings?.enableDispenseCategories) {
+                const num = Number(val);
+                return sum + (isNaN(num) ? 0 : num);
+              }
+
+              // Use advanced calculation for pharmacies with the feature
+              if (typeof val === "object" && val.patient !== undefined) {
+                // New structure: { patient: 5, scissors: 3 }
+                const patientNum = Number(val.patient);
+                const scissorsNum = Number(val.scissors);
+                return (
+                  sum +
+                  (isNaN(patientNum) ? 0 : patientNum) +
+                  (isNaN(scissorsNum) ? 0 : scissorsNum)
+                );
+              } else if (
+                typeof val === "object" &&
+                val.quantity !== undefined
+              ) {
+                // Old structure: { quantity: 5, category: "patient" }
+                const num = Number(val.quantity);
+                return sum + (isNaN(num) ? 0 : num);
+              } else {
+                // Simple structure: 5
+                const num = Number(val);
+                return sum + (isNaN(num) ? 0 : num);
+              }
+            },
+            0
+          );
+
+          consumption[item.name].total += monthDispensed;
+          consumption[item.name].months += 1;
+        });
+      });
+
+      // Calculate averages
+      Object.values(consumption).forEach((item) => {
+        if (item.months > 0) {
+          const total = item.total / item.months;
+          if (!isNaN(total) && total > 0) {
+            item.average = Math.floor(total);
+          } else {
+            item.average = 10; // Default fallback
+          }
+        } else {
+          item.average = 10; // Default fallback
+        }
+      });
+
+      setMonthlyConsumption(consumption);
+    };
+    
     calculateMonthlyConsumption();
-  }, [itemsByMonth]);
+  }, [itemsByMonth, pharmacySettings]);
 
   // Helper function to calculate remaining stock for an item
   const calculateRemainingStock = (item) => {
@@ -470,9 +497,40 @@ export function useInventoryData(pharmacyId = null) {
     const newMonthKey = getMonthKey(newYear, newMonth);
     const currentMonthKey = getMonthKey(year, month);
 
-    // Only carry over if moving to a future month
+    // Save current month data before navigation to prevent data loss
+    if (itemsByMonth[currentMonthKey] && itemsByMonth[currentMonthKey].length > 0) {
+      // Determine the actual pharmacy ID to use
+      let currentPharmacyId = pharmacyId;
+      if (!currentPharmacyId) {
+        const pharmaUser = localStorage.getItem("pharmaUser");
+        if (pharmaUser) {
+          try {
+            const parsedUser = JSON.parse(pharmaUser);
+            if (parsedUser && parsedUser.assignedPharmacy) {
+              currentPharmacyId = parsedUser.assignedPharmacy;
+            }
+          } catch (error) {
+            console.error("Error parsing pharmaUser for save before navigation:", error);
+          }
+        }
+        if (!currentPharmacyId) {
+          currentPharmacyId = "default";
+        }
+      }
+
+      // Save current month data asynchronously to prevent loss
+      saveWithRetry(currentPharmacyId, currentMonthKey, itemsByMonth[currentMonthKey])
+        .catch((err) => {
+          console.error("Failed to save current month data before navigation:", err);
+        });
+    }
+
+    // Only carry over if moving to a future month AND the target month doesn't have data
     if (newMonthKey > currentMonthKey) {
-      carryOverStockToNextMonth(currentMonthKey, newMonthKey);
+      const targetMonthHasData = itemsByMonth[newMonthKey] && itemsByMonth[newMonthKey].length > 0;
+      if (!targetMonthHasData) {
+        carryOverStockToNextMonth(currentMonthKey, newMonthKey);
+      }
     }
 
     setMonth(newMonth);

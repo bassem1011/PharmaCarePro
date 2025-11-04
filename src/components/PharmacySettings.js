@@ -21,10 +21,7 @@ const PharmacySettings = ({ pharmacyId, onClose }) => {
   });
 
   useEffect(() => {
-    loadSettings();
-  }, [pharmacyId]);
-
-  const loadSettings = async () => {
+    const loadSettings = async () => {
     try {
       setLoading(true);
       const pharmacySettings = await getPharmacySettings(pharmacyId);
@@ -37,7 +34,10 @@ const PharmacySettings = ({ pharmacyId, onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+    };
+    
+    loadSettings();
+  }, [pharmacyId, toast]);
 
   const handleSave = async () => {
     try {

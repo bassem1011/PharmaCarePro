@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getAuth } from "firebase/auth";
 import { logout as firebaseLogout } from "../utils/authService";
@@ -53,7 +53,7 @@ export default function Sidebar() {
     toggleMobile,
     closeMobile,
   } = useSidebar();
-  const [isHovering, setIsHovering] = useState(false);
+  // const [isHovering, setIsHovering] = useState(false);
 
   // Auto-collapse on mobile when screen size changes
   useEffect(() => {
@@ -112,24 +112,24 @@ export default function Sidebar() {
     },
   };
 
-  const mobileVariants = {
-    open: {
-      x: 0,
-      transition: {
-        type: "spring",
-        stiffness: 300,
-        damping: 30,
-      },
-    },
-    closed: {
-      x: "100%",
-      transition: {
-        type: "spring",
-        stiffness: 300,
-        damping: 30,
-      },
-    },
-  };
+  // const mobileVariants = {
+  //     open: {
+  //       x: 0,
+  //       transition: {
+  //         type: "spring",
+  //         stiffness: 300,
+  //         damping: 30,
+  //       },
+  //     },
+  //     closed: {
+  //       x: "100%",
+  //       transition: {
+  //         type: "spring",
+  //         stiffness: 300,
+  //         damping: 30,
+  //       },
+  //     },
+  //   };
 
   return (
     <>
@@ -182,8 +182,8 @@ export default function Sidebar() {
         animate={sidebarCollapsed ? "collapsed" : "expanded"}
         style={{ minWidth: sidebarCollapsed ? 80 : 256 }}
         dir="rtl"
-        onHoverStart={() => setIsHovering(true)}
-        onHoverEnd={() => setIsHovering(false)}
+        // onHoverStart={() => setIsHovering(true)}
+        // onHoverEnd={() => setIsHovering(false)}
       >
         {/* Enhanced Header */}
         <motion.div

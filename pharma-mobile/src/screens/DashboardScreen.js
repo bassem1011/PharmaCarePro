@@ -203,7 +203,7 @@ const DashboardScreen = () => {
                 subtitle="عدد الأصناف المسجلة"
               />
               <StatCard
-                icon="trending-down"
+                icon="trending-down-outline"
                 label="المنصرف هذا الشهر"
                 value={inventory.items
                   .filter((item) => item && item.name)

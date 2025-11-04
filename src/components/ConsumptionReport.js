@@ -17,20 +17,6 @@ const ConsumptionReport = ({
 
   // Calculate consumption from daily dispensed data
   const reportData = useMemo(() => {
-    console.log("ConsumptionReport debug data:", {
-      items: items,
-      itemsByMonth: itemsByMonth,
-      pharmacySettings: pharmacySettings,
-      month: month,
-      year: year,
-    });
-
-    // Debug: Show available month keys
-    console.log(
-      "Available month keys in itemsByMonth:",
-      Object.keys(itemsByMonth)
-    );
-
     if (!items || !Array.isArray(items) || !itemsByMonth) {
       console.warn("Missing required data for report calculation");
       return {
@@ -75,10 +61,6 @@ const ConsumptionReport = ({
     };
 
     const months = getLastThreeMonths();
-    console.log(
-      "Requested months for consumption report:",
-      months.map((m) => m.key)
-    );
 
     // Filter valid items
     const validItems = items.filter(
@@ -107,28 +89,9 @@ const ConsumptionReport = ({
 
           // Calculate total dispensed for this specific month
           if (monthItem && monthItem.dailyDispense) {
-            console.log(`Debug consumption for ${item.name} in ${monthKey}:`, {
-              monthItem: monthItem,
-              dailyDispense: monthItem.dailyDispense,
-              pharmacySettings: pharmacySettings,
-            });
-
-            // Debug: Show the actual dailyDispense values
-            const dailyValues = Object.values(monthItem.dailyDispense);
-            console.log(`DailyDispense values for ${item.name}:`, dailyValues);
-            console.log(`First value details:`, {
-              value: dailyValues[0],
-              type: typeof dailyValues[0],
-              isNumber: typeof dailyValues[0] === "number",
-              isObject: typeof dailyValues[0] === "object",
-              isNaN: isNaN(dailyValues[0]),
-            });
-
             const monthDispensed = Object.values(
               monthItem.dailyDispense
             ).reduce((sum, val) => {
-              console.log(`Processing value:`, { val, sum, type: typeof val });
-
               // Use simple calculation for pharmacies without the feature
               // Default to simple calculation if pharmacySettings is undefined
               if (
@@ -145,29 +108,16 @@ const ConsumptionReport = ({
                       sum +
                       (isNaN(patientNum) ? 0 : patientNum) +
                       (isNaN(scissorsNum) ? 0 : scissorsNum);
-                    console.log(
-                      `Object fallback calculation: ${JSON.stringify(
-                        val
-                      )} -> patient:${patientNum} + scissors:${scissorsNum} = ${result}`
-                    );
                     return result;
                   } else if (val.quantity !== undefined) {
                     const num = Number(val.quantity);
                     const result = sum + (isNaN(num) ? 0 : num);
-                    console.log(
-                      `Quantity fallback calculation: ${JSON.stringify(
-                        val
-                      )} -> ${num} -> ${result}`
-                    );
                     return result;
                   }
                 }
 
                 const num = Number(val);
                 const result = sum + (isNaN(num) ? 0 : num);
-                console.log(
-                  `Simple calculation: ${val} -> ${num} -> ${result}`
-                );
                 return result;
               }
 
@@ -194,13 +144,8 @@ const ConsumptionReport = ({
                 return sum + (isNaN(num) ? 0 : num);
               }
             }, 0);
-            console.log(
-              `Final monthDispensed for ${item.name} in ${monthKey}:`,
-              monthDispensed
-            );
             return monthDispensed;
           }
-          console.log(`No data found for ${item.name} in ${monthKey}`);
           return 0; // Return 0 if no data for this month
         });
 
@@ -264,7 +209,7 @@ const ConsumptionReport = ({
     };
 
     return result;
-  }, [items, month, year, itemsByMonth]);
+  }, [items, month, year, itemsByMonth, pharmacySettings]);
 
   // Export to Excel
   const exportExcel = () => {

@@ -141,7 +141,7 @@ const PharmacyShortages = ({
       mediumCount,
       totalCount,
     };
-  }, [items, getCurrentStock, getMonthlyAverage, month, year]);
+  }, [items, getCurrentStock, getMonthlyAverage]);
 
   const shortages = memoizedCalculations.shortages;
   const criticalCount = memoizedCalculations.criticalCount;

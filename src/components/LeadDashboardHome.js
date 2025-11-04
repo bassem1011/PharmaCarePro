@@ -70,6 +70,13 @@ export default function LeadDashboardHome() {
         let presentCount = 0,
           absentCount = 0;
 
+        const processAttendance = (att) => {
+          Object.values(att).forEach((val) => {
+            if (val === true) presentCount++;
+            else if (val === false) absentCount++;
+          });
+        };
+
         for (const pharmacyDoc of pharmaciesSnap.docs) {
           try {
             const attSnap = await getDocs(
@@ -78,10 +85,7 @@ export default function LeadDashboardHome() {
             const todayDoc = attSnap.docs.find((d) => d.id === today);
             if (todayDoc) {
               const att = todayDoc.data();
-              Object.values(att).forEach((val) => {
-                if (val === true) presentCount++;
-                else if (val === false) absentCount++;
-              });
+              processAttendance(att);
             }
           } catch (error) {
             console.warn(

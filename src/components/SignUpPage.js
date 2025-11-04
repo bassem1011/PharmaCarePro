@@ -24,7 +24,7 @@ const SignUpPage = ({ onSignUp, goToLogin }) => {
   const navigate = useNavigate();
 
   // Default to lead pharmacist for first sign up; can be customized later
-  const role = "lead";
+  // const role = "lead";
 
   // Password strength calculation
   const getPasswordStrength = (password) => {

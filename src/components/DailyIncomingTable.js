@@ -1,5 +1,5 @@
 // ✅ src/components/DailyIncomingTable.jsx (updated with weekly totals and incoming source)
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../App";
 import { Calendar } from "lucide-react";
@@ -86,12 +86,12 @@ const DailyIncomingTable = ({
     return Math.floor(Number(total));
   };
 
-  const getAverage = (item) => {
-    if (!item || !item.dailyIncoming) return 0;
-    const total = getTotal(item);
-    const daysCount = Object.keys(item.dailyIncoming || {}).length;
-    return daysCount > 0 ? Math.floor(total / daysCount) : 0;
-  };
+  // const getAverage = (item) => {
+  //   if (!item || !item.dailyIncoming) return 0;
+  //   const total = getTotal(item);
+  //   const daysCount = Object.keys(item.dailyIncoming || {}).length;
+  //   return daysCount > 0 ? Math.floor(total / daysCount) : 0;
+  // };
 
   return (
     <div className="space-y-6">

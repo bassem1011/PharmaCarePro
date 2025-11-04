@@ -1,12 +1,12 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import SafeIcon from "./SafeIcon";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors, radii, shadows } from "../../utils/theme";
 
 const QuickAction = ({ icon, label, color = colors.brandStart, onPress }) => (
   <TouchableOpacity style={styles.action} onPress={onPress}>
     <View style={[styles.iconWrap, { backgroundColor: `${color}22` }]}>
-      <SafeIcon name={icon} size={22} color={color} />
+      <MaterialCommunityIcons name={icon} size={22} color={color} />
     </View>
     <Text style={styles.label}>{label}</Text>
   </TouchableOpacity>

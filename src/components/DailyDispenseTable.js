@@ -185,16 +185,6 @@ const DailyDispenseTable = ({
 
       try {
         const settings = await getPharmacySettings(pharmacyId);
-        console.log(
-          "Loaded pharmacy settings for pharmacy",
-          pharmacyId,
-          ":",
-          settings
-        );
-        console.log(
-          "enableDispenseCategories:",
-          settings?.enableDispenseCategories
-        );
         setPharmacySettings(settings);
       } catch (error) {
         console.error("Error loading pharmacy settings:", error);

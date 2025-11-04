@@ -5,7 +5,7 @@ import {
   collection,
   getDocs,
   setDoc,
-  updateDoc,
+  // updateDoc,
   deleteDoc,
   writeBatch,
   onSnapshot,
@@ -60,6 +60,7 @@ export default function PharmacyDetailsPage() {
     monthlyConsumption,
     loading: inventoryLoading,
     error: inventoryError,
+    pharmacySettings,
   } = useInventoryData(pharmacyId);
 
   // Enhanced navigation handler
@@ -74,7 +75,7 @@ export default function PharmacyDetailsPage() {
   };
 
   // Find current senior pharmacist
-  const currentSenior = pharmacists.find((ph) => ph.role === "senior");
+  // const currentSenior = pharmacists.find((ph) => ph.role === "senior");
 
   // Fetch pharmacists assigned to this pharmacy
   useEffect(() => {
@@ -140,20 +141,20 @@ export default function PharmacyDetailsPage() {
   };
 
   // Determine if current user is the senior pharmacist for this pharmacy
-  const isSenior =
-    user && user.role === "senior" && user.assignedPharmacy === pharmacyId;
+  // const isSenior =
+  //   user && user.role === "senior" && user.assignedPharmacy === pharmacyId;
 
   // Handle attendance change (for senior pharmacist)
-  const handleAttendanceChange = async (pharmacistId, present) => {
-    try {
-      const docRef = doc(db, "pharmacies", pharmacyId, "attendance", today);
-      // Merge: update only the changed pharmacist's attendance
-      await updateDoc(docRef, { [pharmacistId]: present });
-      setAttendance((prev) => ({ ...prev, [pharmacistId]: present }));
-    } catch (err) {
-      alert("فشل تحديث الحضور");
-    }
-  };
+  // const handleAttendanceChange = async (pharmacistId, present) => {
+  //     try {
+  //       const docRef = doc(db, "pharmacies", pharmacyId, "attendance", today);
+  //       // Merge: update only the changed pharmacist's attendance
+  //       await updateDoc(docRef, { [pharmacistId]: present });
+  //       setAttendance((prev) => ({ ...prev, [pharmacistId]: present }));
+  //     } catch (err) {
+  //       alert("فشل تحديث الحضور");
+  //     }
+  //   };
 
   // Edit pharmacy name handler
   const handleEditPharmacy = async (e) => {
@@ -432,7 +433,36 @@ export default function PharmacyDetailsPage() {
     items && Array.isArray(items)
       ? items.reduce((sum, item) => {
           const itemTotal = Object.values(item.dailyDispense || {}).reduce(
-            (acc, val) => acc + Number(val || 0),
+            (acc, val) => {
+              // Use simple calculation for pharmacies without the feature
+              if (!pharmacySettings?.enableDispenseCategories) {
+                const num = Number(val);
+                return acc + (isNaN(num) ? 0 : num);
+              }
+
+              // Use advanced calculation for pharmacies with the feature
+              if (typeof val === "object" && val.patient !== undefined) {
+                // New structure: { patient: 5, scissors: 3 }
+                const patientNum = Number(val.patient);
+                const scissorsNum = Number(val.scissors);
+                return (
+                  acc +
+                  (isNaN(patientNum) ? 0 : patientNum) +
+                  (isNaN(scissorsNum) ? 0 : scissorsNum)
+                );
+              } else if (
+                typeof val === "object" &&
+                val.quantity !== undefined
+              ) {
+                // Old structure: { quantity: 5, category: "patient" }
+                const num = Number(val.quantity);
+                return acc + (isNaN(num) ? 0 : num);
+              } else {
+                // Simple structure: 5
+                const num = Number(val);
+                return acc + (isNaN(num) ? 0 : num);
+              }
+            },
             0
           );
           return sum + itemTotal;
@@ -802,7 +832,39 @@ export default function PharmacyDetailsPage() {
                       );
                       const totalDispensed = Math.floor(
                         Object.values(item.dailyDispense || {}).reduce(
-                          (acc, val) => acc + Number(val || 0),
+                          (acc, val) => {
+                            // Use simple calculation for pharmacies without the feature
+                            if (!pharmacySettings?.enableDispenseCategories) {
+                              const num = Number(val);
+                              return acc + (isNaN(num) ? 0 : num);
+                            }
+
+                            // Use advanced calculation for pharmacies with the feature
+                            if (
+                              typeof val === "object" &&
+                              val.patient !== undefined
+                            ) {
+                              // New structure: { patient: 5, scissors: 3 }
+                              const patientNum = Number(val.patient);
+                              const scissorsNum = Number(val.scissors);
+                              return (
+                                acc +
+                                (isNaN(patientNum) ? 0 : patientNum) +
+                                (isNaN(scissorsNum) ? 0 : scissorsNum)
+                              );
+                            } else if (
+                              typeof val === "object" &&
+                              val.quantity !== undefined
+                            ) {
+                              // Old structure: { quantity: 5, category: "patient" }
+                              const num = Number(val.quantity);
+                              return acc + (isNaN(num) ? 0 : num);
+                            } else {
+                              // Simple structure: 5
+                              const num = Number(val);
+                              return acc + (isNaN(num) ? 0 : num);
+                            }
+                          },
                           0
                         )
                       );

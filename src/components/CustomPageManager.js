@@ -48,7 +48,7 @@ const CustomPageManager = ({
   const [customPages, setCustomPages] = useState([]);
   const [newPageName, setNewPageName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [isSending, setIsSending] = useState("");
+  // const [isSending, setIsSending] = useState("");
   const [editingPageId, setEditingPageId] = useState(null);
   const [editingPageName, setEditingPageName] = useState("");
   const [showMonthYearModal, setShowMonthYearModal] = useState(false);
@@ -132,14 +132,6 @@ const CustomPageManager = ({
                         ...doc.data(),
                       }));
                       // Filter pages to show only those for current pharmacy or legacy pages
-                      console.log("Custom pages debug:", {
-                        pharmacyId: pharmacyId,
-                        pagesData: pagesData.map((p) => ({
-                          id: p.id,
-                          name: p.name,
-                          pharmacyId: p.pharmacyId,
-                        })),
-                      });
 
                       const filteredPages = pagesData.filter((page) => {
                         const isLegacy = !page.pharmacyId;
@@ -147,9 +139,6 @@ const CustomPageManager = ({
                           page.pharmacyId === pharmacyId;
                         const shouldShow = isLegacy || isCurrentPharmacy;
 
-                        console.log(
-                          `Page ${page.name}: legacy=${isLegacy}, currentPharmacy=${isCurrentPharmacy}, shouldShow=${shouldShow}`
-                        );
                         return shouldShow;
                       });
                       setCustomPages(filteredPages);
@@ -177,23 +166,12 @@ const CustomPageManager = ({
             ...doc.data(),
           }));
           // Filter pages to show only those for current pharmacy or legacy pages
-          console.log("Custom pages debug (lead):", {
-            pharmacyId: pharmacyId,
-            pagesData: pagesData.map((p) => ({
-              id: p.id,
-              name: p.name,
-              pharmacyId: p.pharmacyId,
-            })),
-          });
 
           const filteredPages = pagesData.filter((page) => {
             const isLegacy = !page.pharmacyId;
             const isCurrentPharmacy = page.pharmacyId === pharmacyId;
             const shouldShow = isLegacy || isCurrentPharmacy;
 
-            console.log(
-              `Page ${page.name}: legacy=${isLegacy}, currentPharmacy=${isCurrentPharmacy}, shouldShow=${shouldShow}`
-            );
             return shouldShow;
           });
           setCustomPages(filteredPages);
@@ -208,7 +186,7 @@ const CustomPageManager = ({
     return () => {
       if (cleanup) cleanup();
     };
-  }, []);
+  }, [pharmacyId]);
 
   // Get current month's items
   const currentItems = itemsByMonth[monthKey] || [];
@@ -260,7 +238,7 @@ const CustomPageManager = ({
       return;
     }
 
-    setIsSending(page.name);
+    // setIsSending(page.name);
 
     // Get existing items in the page
     const existingItems = page.items || [];
@@ -284,7 +262,7 @@ const CustomPageManager = ({
     setSelectedPageForItems((prev) =>
       prev && prev.id === page.id ? { ...prev, items: newItems } : prev
     );
-    setIsSending("");
+    // setIsSending("");
     toast(`تم إضافة ${itemsToAdd.length} صنف إلى الصفحة بنجاح!`, "success");
   };
 
@@ -395,9 +373,9 @@ const CustomPageManager = ({
   };
 
   // Helper: get selected items for the current month
-  const getSelectedItems = () => {
-    return customPages.flatMap((page) => page.items || []);
-  };
+  // const getSelectedItems = () => {
+  //   return customPages.flatMap((page) => page.items || []);
+  // };
 
   // Toggle page expansion
   const togglePageExpansion = (pageId) => {

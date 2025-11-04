@@ -3,7 +3,6 @@ import { View, Text, Animated, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, radii, shadows, spacing } from "../../utils/theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import SafeIcon from "../common/SafeIcon";
 
 const ProgressBar = ({ progress = 0, barColor = colors.blue }) => {
   const width = Math.max(0, Math.min(100, Number(progress) || 0));
@@ -96,7 +95,7 @@ const StatCard = ({
       >
         {/* Decorative background pattern */}
         <View style={styles.backgroundPattern}>
-          <SafeIcon
+          <MaterialCommunityIcons
             name={icon}
             size={80}
             color="rgba(255,255,255,0.1)"
@@ -108,7 +107,7 @@ const StatCard = ({
           <View style={styles.headerRow}>
             <View style={styles.iconWrapper}>
               <View style={styles.iconBackground}>
-                <SafeIcon name={icon} size={24} color="#ffffff" />
+                <MaterialCommunityIcons name={icon} size={24} color="#ffffff" />
               </View>
             </View>
             {showDelta && (

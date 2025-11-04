@@ -77,7 +77,7 @@ export default function PharmaciesPage() {
     setIsSubmitting(true);
 
     try {
-      const result = await createPharmacy(newName.trim());
+      await createPharmacy(newName.trim());
 
       setNewName("");
       setShowForm(false);

@@ -27,16 +27,6 @@ const StockStatusTable = ({
       }
       try {
         const settings = await getPharmacySettings(pharmacyId);
-        console.log(
-          "StockStatusTable: Loaded pharmacy settings for pharmacy",
-          pharmacyId,
-          ":",
-          settings
-        );
-        console.log(
-          "StockStatusTable: enableDispenseCategories:",
-          settings?.enableDispenseCategories
-        );
         setPharmacySettings(settings);
       } catch (error) {
         console.error("Error loading pharmacy settings:", error);
@@ -62,13 +52,6 @@ const StockStatusTable = ({
   // Helper function to calculate dispensed amounts
   const calculateDispensed = (item) => {
     if (!item.dailyDispense) return { patient: 0, scissors: 0, total: 0 };
-
-    console.log(
-      "Calculating dispensed for item:",
-      item.name,
-      "dailyDispense:",
-      item.dailyDispense
-    );
 
     const patientDispensed = Object.values(item.dailyDispense).reduce(
       (sum, val) => {
@@ -115,7 +98,6 @@ const StockStatusTable = ({
         : Math.floor(patientDispensed + scissorsDispensed),
     };
 
-    console.log("calculateDispensed result:", result);
     return result;
   };
 
@@ -163,28 +145,28 @@ const StockStatusTable = ({
     };
   }, [items]);
 
-  const getTotal = (item) => {
-    if (!item) return 0;
-    const dispensedData = calculateDispensed(item);
-    return dispensedData.total;
-  };
+  // const getTotal = (item) => {
+  //   if (!item) return 0;
+  //   const dispensedData = calculateDispensed(item);
+  //   return dispensedData.total;
+  // };
 
-  const getTotalIncoming = (item) => {
-    if (!item) return 0;
-    const total = Object.values(item.dailyIncoming || {}).reduce(
-      (sum, val) => sum + (Number(val) || 0),
-      0
-    );
-    return Math.floor(Number(total));
-  };
+  // const getTotalIncoming = (item) => {
+  //   if (!item) return 0;
+  //   const total = Object.values(item.dailyIncoming || {}).reduce(
+  //     (sum, val) => sum + (Number(val) || 0),
+  //     0
+  //   );
+  //   return Math.floor(Number(total));
+  // };
 
-  const getCurrentStock = (item) => {
-    if (!item) return 0;
-    const opening = Math.floor(Number(item.opening || 0));
-    const totalIncoming = getTotalIncoming(item);
-    const totalDispensed = getTotal(item);
-    return Math.floor(opening + totalIncoming - totalDispensed);
-  };
+  // const getCurrentStock = (item) => {
+  //     if (!item) return 0;
+  //     const opening = Math.floor(Number(item.opening || 0));
+  //     const totalIncoming = getTotalIncoming(item);
+  //     const totalDispensed = getTotal(item);
+  //     return Math.floor(opening + totalIncoming - totalDispensed);
+  //   };
 
   // Helper function to aggregate daily incoming data by source
   const aggregateIncomingBySource = (item) => {
@@ -321,10 +303,10 @@ const StockStatusTable = ({
         (sum, item) => sum + (Number(item["القيمة المتبقية"]) || 0),
         0
       );
-      const totalCurrentStock = excelData.reduce(
-        (sum, item) => sum + (Number(item["الرصيد الحالي"]) || 0),
-        0
-      );
+      // const totalCurrentStock = excelData.reduce(
+      //   (sum, item) => sum + (Number(item["الرصيد الحالي"]) || 0),
+      //   0
+      // );
 
       // Calculate conditional summary statistics based on pharmacy settings
       let totalPatientDispensedValue = 0;

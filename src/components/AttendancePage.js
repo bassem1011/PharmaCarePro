@@ -362,6 +362,7 @@ export default function AttendancePage() {
       }
     };
 
+    fetchData();
     setupRealTimeListeners();
 
     return () => {
